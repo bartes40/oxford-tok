@@ -98,3 +98,64 @@ npm run build
 | `2` | SRS: Hard (+1d, 12 XP) |
 | `3` | SRS: Good (+3d, 22 XP) |
 | `4` | SRS: Easy (+6d, 35 XP) |
+
+---
+
+## 🌐 Wdrożenie Online za Darmo (Free Hosting & Free Domain)
+
+Projekt jest w 100% przygotowany do bezpłatnego hostingu w chmurze z automatyczną darmową domeną i certyfikatem SSL HTTPS. Kod projektu znajduje się w Twoim repozytorium GitHub:
+👉 **[https://github.com/bartes40/oxford-tok](https://github.com/bartes40/oxford-tok)**
+
+---
+
+### Opcja 1: Vercel (Rekomendowana – Szybki Edge CDN + Darmowa Domena `.vercel.app`)
+
+1. Wejdź na [Vercel](https://vercel.com) i zaloguj się przez swoje konto GitHub (`bartes40`).
+2. Kliknij **"Add New..."** $\to$ **"Project"**.
+3. Wybierz repozytorium `oxford-tok` i kliknij **"Import"**.
+4. Vercel automatycznie wykryje ustawienia z dołączonego pliku `vercel.json` (Vite, katalog `dist`, Serverless Function w `api/index.js`).
+5. Kliknij **"Deploy"**.
+6. Po kilkunastu sekundach otrzymasz aktywny adres online z darmową domeną:
+   👉 **`https://oxford-tok.vercel.app`** (lub Twoja unikalna subdomena).
+
+---
+
+### Opcja 2: Render.com (Ciągły serwer Node.js 24/7 + Darmowa Domena `.onrender.com`)
+
+W projekcie znajduje się gotowy plik konfiguracyjny `render.yaml`:
+1. Wejdź na [dashboard.render.com](https://dashboard.render.com) i połącz z GitHubem.
+2. Wybierz **"New Web Service"** i wskaż repozytorium `bartes40/oxford-tok`.
+3. Wybierz darmowy plan (**Free tier**).
+4. Render uruchomi build i udostępni Twoją aplikację pod darmową domeną:
+   👉 **`https://oxford-tok.onrender.com`**.
+
+---
+
+## 🗄️ Darmowa Baza Danych Online na Słówka (Turso LibSQL – 9 GB Free)
+
+Do długoterminowego przechowywania słówek i postępów SRS w chmurze bez limitów i bez opłat skonfigurowano obsługę **Turso (LibSQL / Cloud SQLite)**:
+
+* 🎁 **Darmowy pakiet Turso**:
+  * **9 GB** pamięci (baza 4,979 słówek zajmuje ~8 MB, czyli poniżej 0.1% darmowego limitu!)
+  * **500 baz danych** za darmo
+  * **1 miliard odczytów wierszy miesięcznie**
+  * Brak konieczności podawania karty kredytowej
+
+### Jak podłączyć Turso w 2 minuty:
+1. Wejdź na [https://turso.tech](https://turso.tech) i zaloguj się przez GitHub.
+2. W panelu Turso kliknij **"Create Database"** i nazwij ją np. `oxford-words`.
+3. Skopiuj **Database URL** (np. `libsql://oxford-words-username.turso.io`).
+4. Przejdź do zakładki **Tokens** i wygeneruj token autoryzacyjny.
+5. Uruchom automatyczny skrypt zasilający bazę w chmurze:
+   ```bash
+   npm run db:push -- "twoj-turso-url" "twoj-auth-token"
+   ```
+   Skrypt automatycznie utworzy tabele i prześle wszystkie 4,979 słówek ze wszystkimi transkrypcjami, definicjami i przykładami.
+6. Dodaj zmienne środowiskowe do Vercel (Settings $\to$ Environment Variables) lub w pliku `.env`:
+   ```env
+   TURSO_DATABASE_URL=libsql://oxford-words-username.turso.io
+   TURSO_AUTH_TOKEN=twoj-token
+   ```
+
+*Uwaga: Jeśli nie podasz zmiennych Turso, aplikacja na Vercel automatycznie korzysta z wbudowanej, zoptymalizowanej bazy SQLite w `/tmp`, więc strona działa natychmiast po wdrożeniu!*
+
