@@ -10,6 +10,22 @@ import {
 
 const router = Router();
 
+// Fast in-memory LRU cache for enriched dictionary entries (sub-millisecond lookups)
+const enrichedCache = new Map();
+const MAX_ENRICHED_CACHE = 500;
+
+function getCachedEnriched(key) {
+  return enrichedCache.get(String(key).toLowerCase());
+}
+
+function setCachedEnriched(key, value) {
+  if (enrichedCache.size >= MAX_ENRICHED_CACHE) {
+    const firstKey = enrichedCache.keys().next().value;
+    enrichedCache.delete(firstKey);
+  }
+  enrichedCache.set(String(key).toLowerCase(), value);
+}
+
 // Helper to check and maintain daily streaks
 function updateDailyStreak(profile) {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -201,10 +217,20 @@ router.get('/feed', async (req, res) => {
 router.get('/oxford/enrich/:wordOrId', async (req, res) => {
   try {
     const { wordOrId } = req.params;
-    const isNum = /^\d+$/.test(wordOrId);
-    const enriched = isNum
-      ? await enrichWordByIdOrText(Number(wordOrId))
-      : await lookupOrEnrichWord(wordOrId);
+    let enriched = getCachedEnriched(wordOrId);
+
+    if (!enriched) {
+      const isNum = /^\d+$/.test(wordOrId);
+      enriched = isNum
+        ? await enrichWordByIdOrText(Number(wordOrId))
+        : await lookupOrEnrichWord(wordOrId);
+
+      if (enriched) {
+        setCachedEnriched(wordOrId, enriched);
+        if (enriched.id) setCachedEnriched(enriched.id, enriched);
+        if (enriched.word) setCachedEnriched(enriched.word, enriched);
+      }
+    }
 
     if (!enriched) {
       return res.status(404).json({ success: false, error: 'Word not found in Oxford API' });
@@ -224,6 +250,7 @@ router.get('/oxford/enrich/:wordOrId', async (req, res) => {
     };
 
     const fullWord = attachSrsPreview({ ...enriched, ...prog });
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
     res.json({ success: true, word: fullWord });
   } catch (error) {
     console.error('Error enriching word:', error);
@@ -515,15 +542,20 @@ router.get('/words', async (req, res) => {
       params.push(cefr);
     }
 
-    query += `
-      ORDER BY 
-        CASE WHEN LOWER(w.word) = LOWER(?) THEN 0
-             WHEN LOWER(w.word) LIKE LOWER(?) THEN 1
-             ELSE 2 END,
-        w.word ASC
-      LIMIT ?
-    `;
-    params.push(cleanQ, `${cleanQ}%`, Number(limit) || 60);
+    if (cleanQ) {
+      query += `
+        ORDER BY 
+          CASE WHEN LOWER(w.word) = LOWER(?) THEN 0
+               WHEN LOWER(w.word) LIKE LOWER(?) THEN 1
+               ELSE 2 END,
+          w.word ASC
+        LIMIT ?
+      `;
+      params.push(cleanQ, `${cleanQ}%`, Number(limit) || 60);
+    } else {
+      query += ` ORDER BY w.word ASC LIMIT ?`;
+      params.push(Number(limit) || 60);
+    }
 
     let rows = db.prepare(query).all(...params);
 
@@ -536,6 +568,7 @@ router.get('/words', async (req, res) => {
     }
 
     const words = rows.map(r => attachSrsPreview(r));
+    res.set('Cache-Control', 'private, max-age=60');
     res.json({ success: true, count: words.length, words });
   } catch (error) {
     console.error('Error searching words:', error);

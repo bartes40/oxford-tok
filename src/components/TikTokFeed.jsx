@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import WordCard from './WordCard';
 import { playSwoosh, playFlip } from '../utils/sound';
 
-export default function TikTokFeed({
+function TikTokFeedComponent({
   words,
   onToggleFavorite,
   onSpeak,
@@ -17,13 +17,57 @@ export default function TikTokFeed({
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [transitionState, setTransitionState] = useState(null); // 'next' | 'prev' | 'snapback' | null
+  const [snapbackDirection, setSnapbackDirection] = useState(null); // 'next' | 'prev' | null
 
+  // Core Gesture Refs
   const touchStartY = useRef(0);
-  const touchStartTime = useRef(0);
+  const touchStartX = useRef(0);
+  const dragStartY = useRef(0);
+  const hasSlopCrossed = useRef(false);
+  const isDraggingRef = useRef(false);
   const dragDistance = useRef(0);
+  const recentPoints = useRef([]);
   const suppressClick = useRef(false);
   const isTransitioningRef = useRef(false);
   const containerRef = useRef(null);
+
+  // Timers and Throttling
+  const rafIdRef = useRef(null);
+  const pendingDragYRef = useRef(0);
+  const transitionTimerRef = useRef(null);
+  const snapbackTimerRef = useRef(null);
+  const enrichedRequestedRef = useRef(new Set());
+
+  // Mouse Wheel Momentum Cooldown
+  const lastWheelTriggerRef = useRef(0);
+  const wheelAccumulatorRef = useRef(0);
+  const wheelTimeoutRef = useRef(null);
+
+  const scheduleDragUpdate = (targetY) => {
+    pendingDragYRef.current = targetY;
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        setDragY(pendingDragYRef.current);
+        rafIdRef.current = null;
+      });
+    }
+  };
+
+  const cancelPendingDragUpdate = () => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      cancelPendingDragUpdate();
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (snapbackTimerRef.current) clearTimeout(snapbackTimerRef.current);
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+    };
+  }, []);
 
   const currentWord = words[currentIndex];
   const nextWord = currentIndex < words.length - 1 ? words[currentIndex + 1] : null;
@@ -39,11 +83,15 @@ export default function TikTokFeed({
 
     const upcoming = [words[currentIndex], words[currentIndex + 1], words[currentIndex + 2]].filter(Boolean);
     for (const w of upcoming) {
+      const key = String(w.id || w.word);
+      if (enrichedRequestedRef.current.has(key)) continue;
+
       const isPlBad =
         !w.definition_pl ||
         w.definition_pl.trim().toLowerCase() === (w.word || '').trim().toLowerCase() ||
         w.definition_pl.startsWith('Ładowanie');
       if (!w.senses || w.senses.length === 0 || isPlBad) {
+        enrichedRequestedRef.current.add(key);
         fetch(`/api/oxford/enrich/${encodeURIComponent(w.id || w.word)}`)
           .then((r) => r.json())
           .then((data) => {
@@ -56,6 +104,46 @@ export default function TikTokFeed({
     }
   }, [currentIndex, words.length]);
 
+  // Execute full transition to next or prev card
+  const executeTransition = (direction) => {
+    if (isTransitioningRef.current) return;
+    isTransitioningRef.current = true;
+    playSwoosh();
+    setTransitionState(direction);
+
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = setTimeout(() => {
+      if (direction === 'next') {
+        setCurrentIndex((i) => i + 1);
+      } else {
+        setCurrentIndex((i) => i - 1);
+      }
+      setIsRevealed(false);
+      setDragY(0);
+      pendingDragYRef.current = 0;
+      setTransitionState(null);
+      setSnapbackDirection(null);
+      isTransitioningRef.current = false;
+    }, 340);
+  };
+
+  // Execute smooth snapback to current card
+  const executeSnapback = (currentY) => {
+    const direction = currentY < 0 ? 'next' : 'prev';
+    setSnapbackDirection(direction);
+    setTransitionState('snapback');
+    isTransitioningRef.current = true;
+
+    if (snapbackTimerRef.current) clearTimeout(snapbackTimerRef.current);
+    snapbackTimerRef.current = setTimeout(() => {
+      setDragY(0);
+      pendingDragYRef.current = 0;
+      setTransitionState(null);
+      setSnapbackDirection(null);
+      isTransitioningRef.current = false;
+    }, 260);
+  };
+
   // Programmatic transitions (Keyboard, Wheel, API)
   const triggerTransition = (direction) => {
     if (isTransitioningRef.current) return;
@@ -65,30 +153,10 @@ export default function TikTokFeed({
         if (onLoadMore) onLoadMore();
         return;
       }
-      isTransitioningRef.current = true;
-      playSwoosh();
-      setTransitionState('next');
-
-      setTimeout(() => {
-        setCurrentIndex((i) => i + 1);
-        setIsRevealed(false);
-        setDragY(0);
-        setTransitionState(null);
-        isTransitioningRef.current = false;
-      }, 320);
+      executeTransition('next');
     } else if (direction === 'prev') {
       if (currentIndex <= 0) return;
-      isTransitioningRef.current = true;
-      playSwoosh();
-      setTransitionState('prev');
-
-      setTimeout(() => {
-        setCurrentIndex((i) => i - 1);
-        setIsRevealed(false);
-        setDragY(0);
-        setTransitionState(null);
-        isTransitioningRef.current = false;
-      }, 320);
+      executeTransition('prev');
     }
   };
 
@@ -114,189 +182,199 @@ export default function TikTokFeed({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentIndex, words.length]);
 
-  // Mouse Wheel Handling (Debounced for silky gesture response)
+  // Mouse Wheel & Trackpad Handling with Inertia Cooldown & Delta Accumulation
   const handleWheel = (e) => {
     if (isTransitioningRef.current) return;
 
-    if (Math.abs(e.deltaY) > 28) {
-      if (e.deltaY > 0) {
-        triggerTransition('next');
-      } else {
-        triggerTransition('prev');
+    const now = Date.now();
+    // Cooldown window (520ms) absorbs touchpad/mouse momentum inertia
+    if (now - lastWheelTriggerRef.current < 520) {
+      if (Math.abs(e.deltaY) > 12) {
+        lastWheelTriggerRef.current = now; // extend lock while active rolling continues
       }
+      return;
+    }
+
+    wheelAccumulatorRef.current += e.deltaY;
+
+    if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+    wheelTimeoutRef.current = setTimeout(() => {
+      wheelAccumulatorRef.current = 0;
+    }, 140);
+
+    const ACCUM_THRESHOLD = 45;
+    if (Math.abs(wheelAccumulatorRef.current) >= ACCUM_THRESHOLD) {
+      const dir = wheelAccumulatorRef.current > 0 ? 'next' : 'prev';
+      wheelAccumulatorRef.current = 0;
+      lastWheelTriggerRef.current = now;
+      triggerTransition(dir);
     }
   };
 
-  // Touch Gesture Handling (1:1 Native TikTok Physics with 10px Touch-Slop Deadzone)
-  const handleTouchStart = (e) => {
-    if (isTransitioningRef.current) return;
-    touchStartY.current = e.touches[0].clientY;
-    touchStartTime.current = Date.now();
+  // Unified Gesture Handlers (Smooth continuous delta with zero jump)
+  const onDragStart = (clientY, clientX) => {
+    if (isTransitioningRef.current) return false;
+
+    touchStartY.current = clientY;
+    touchStartX.current = clientX;
+    dragStartY.current = clientY;
+    hasSlopCrossed.current = false;
+    isDraggingRef.current = false;
     dragDistance.current = 0;
-    // Do not set isDragging immediately; wait for movement past slop threshold
+    recentPoints.current = [{ y: clientY, t: Date.now() }];
+    return true;
+  };
+
+  const onDragMove = (clientY, clientX) => {
+    if (isTransitioningRef.current) return;
+
+    const totalDiffY = clientY - touchStartY.current;
+    const totalDiffX = clientX - touchStartX.current;
+    const absY = Math.abs(totalDiffY);
+    const absX = Math.abs(totalDiffX);
+
+    // If movement is predominantly horizontal, ignore to allow gestures elsewhere
+    if (!hasSlopCrossed.current && absX > absY && absX > 10) {
+      return;
+    }
+
+    // Touch-slop deadzone: 12px before dragging engages (prevents mobile thumb taps from false-triggering drags)
+    if (!hasSlopCrossed.current) {
+      if (absY < 12) return;
+      hasSlopCrossed.current = true;
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      // Anchor smoothly so drag starts continuously from 0 with no sudden jump
+      dragStartY.current = totalDiffY > 0 ? touchStartY.current + 12 : touchStartY.current - 12;
+    }
+
+    dragDistance.current = Math.abs(clientY - touchStartY.current);
+
+    // Track rolling window of positions for accurate release velocity
+    const now = Date.now();
+    recentPoints.current.push({ y: clientY, t: now });
+    recentPoints.current = recentPoints.current.filter((p) => now - p.t <= 120);
+
+    // Continuous delta relative to anchor
+    const rawDiff = clientY - dragStartY.current;
+
+    // Apply smooth rubber band resistance at feed bounds
+    let effectiveY = rawDiff;
+    if ((currentIndex === 0 && rawDiff > 0) || (currentIndex === words.length - 1 && rawDiff < 0)) {
+      effectiveY = rawDiff * 0.28;
+    }
+
+    scheduleDragUpdate(effectiveY);
+  };
+
+  const onDragEnd = () => {
+    if (isTransitioningRef.current) return;
+    cancelPendingDragUpdate();
+
+    if (!isDraggingRef.current) {
+      // Pure tap or micro-motion below slop threshold: never suppress click!
+      setDragY(0);
+      pendingDragYRef.current = 0;
+      return;
+    }
+
+    isDraggingRef.current = false;
+    setIsDragging(false);
+
+    // Suppress click on card flip ONLY if user actually engaged a vertical drag gesture
+    if (hasSlopCrossed.current && dragDistance.current > 12) {
+      suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 150);
+    }
+
+    const effectiveDragY = pendingDragYRef.current;
+
+    // Calculate release velocity over the last 120ms
+    const now = Date.now();
+    const validPoints = recentPoints.current.filter((p) => now - p.t <= 120);
+    let velocity = 0;
+    if (validPoints.length >= 2) {
+      const oldest = validPoints[0];
+      const newest = validPoints[validPoints.length - 1];
+      const dt = newest.t - oldest.t;
+      if (dt > 10) {
+        velocity = (newest.y - oldest.y) / dt; // px per ms
+      }
+    }
+
+    // Dynamic threshold based on container height (between 52px and 100px)
+    const containerHeight = containerRef.current ? containerRef.current.clientHeight : window.innerHeight;
+    const threshold = Math.min(Math.max(containerHeight * 0.16, 52), 100);
+    const FLICK_VELOCITY = 0.28; // px/ms
+
+    const shouldGoNext =
+      (effectiveDragY < -threshold || (velocity < -FLICK_VELOCITY && effectiveDragY < -18)) &&
+      currentIndex < words.length - 1;
+
+    const shouldGoPrev =
+      (effectiveDragY > threshold || (velocity > FLICK_VELOCITY && effectiveDragY > 18)) &&
+      currentIndex > 0;
+
+    if (shouldGoNext) {
+      setDragY(effectiveDragY);
+      executeTransition('next');
+    } else if (shouldGoPrev) {
+      setDragY(effectiveDragY);
+      executeTransition('prev');
+    } else {
+      setDragY(effectiveDragY);
+      executeSnapback(effectiveDragY);
+    }
+  };
+
+  // Touch Event Listeners
+  const handleTouchStart = (e) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    onDragStart(touch.clientY, touch.clientX);
   };
 
   const handleTouchMove = (e) => {
-    if (isTransitioningRef.current) return;
-    const currentY = e.touches[0].clientY;
-    const diff = currentY - touchStartY.current;
-    const distance = Math.abs(diff);
-    dragDistance.current = distance;
-
-    // Ignore micro-motion/jitter below 10px so taps never drag upcoming cards
-    if (!isDragging && distance < 10) {
-      return;
-    }
-
-    if (!isDragging) {
-      setIsDragging(true);
-    }
-
-    // Apply smooth rubber band resistance if at bounds
-    const activeDiff = diff > 0 ? diff - 10 : diff + 10;
-    if ((currentIndex === 0 && diff > 0) || (currentIndex === words.length - 1 && diff < 0)) {
-      setDragY(activeDiff * 0.22);
-    } else {
-      setDragY(activeDiff);
-    }
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    onDragMove(touch.clientY, touch.clientX);
   };
 
   const handleTouchEnd = () => {
-    if (isTransitioningRef.current) return;
+    onDragEnd();
+  };
 
-    if (!isDragging) {
-      // Stationary tap or micro-motion below 10px - zero drag occurred
+  const handleTouchCancel = () => {
+    cancelPendingDragUpdate();
+    if (isDraggingRef.current) {
+      executeSnapback(pendingDragYRef.current || dragY);
+    } else {
       setDragY(0);
+      pendingDragYRef.current = 0;
+    }
+    isDraggingRef.current = false;
+    setIsDragging(false);
+  };
+
+  // Mouse Drag Support
+  const handleMouseDown = (e) => {
+    if (isTransitioningRef.current || e.button !== 0) return;
+    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('[data-no-flip]')) {
       return;
     }
 
-    setIsDragging(false);
-
-    if (dragDistance.current > 10) {
-      suppressClick.current = true;
-      setTimeout(() => {
-        suppressClick.current = false;
-      }, 120);
-    }
-
-    const elapsed = Math.max(1, Date.now() - touchStartTime.current);
-    const velocity = dragY / elapsed; // px per ms
-
-    // Threshold: either dragged > 65px or fast flick (velocity > 0.45px/ms)
-    if ((dragY < -65 || velocity < -0.45) && currentIndex < words.length - 1) {
-      isTransitioningRef.current = true;
-      playSwoosh();
-      setTransitionState('next');
-
-      setTimeout(() => {
-        setCurrentIndex((i) => i + 1);
-        setIsRevealed(false);
-        setDragY(0);
-        setTransitionState(null);
-        isTransitioningRef.current = false;
-      }, 320);
-    } else if ((dragY > 65 || velocity > 0.45) && currentIndex > 0) {
-      isTransitioningRef.current = true;
-      playSwoosh();
-      setTransitionState('prev');
-
-      setTimeout(() => {
-        setCurrentIndex((i) => i - 1);
-        setIsRevealed(false);
-        setDragY(0);
-        setTransitionState(null);
-        isTransitioningRef.current = false;
-      }, 320);
-    } else {
-      // Snapback cancelled drag
-      setTransitionState('snapback');
-      setTimeout(() => {
-        setDragY(0);
-        setTransitionState(null);
-      }, 240);
-    }
-  };
-
-  // Mouse Drag Support for Desktop testing
-  const handleMouseDown = (e) => {
-    if (isTransitioningRef.current || e.button !== 0) return;
-    touchStartY.current = e.clientY;
-    touchStartTime.current = Date.now();
-    dragDistance.current = 0;
-    let draggingStarted = false;
+    if (!onDragStart(e.clientY, e.clientX)) return;
 
     const onMouseMove = (moveEvent) => {
-      const diff = moveEvent.clientY - touchStartY.current;
-      const distance = Math.abs(diff);
-      dragDistance.current = distance;
-
-      if (!draggingStarted && distance < 10) {
-        return;
-      }
-
-      if (!draggingStarted) {
-        draggingStarted = true;
-        setIsDragging(true);
-      }
-
-      const activeDiff = diff > 0 ? diff - 10 : diff + 10;
-      if ((currentIndex === 0 && diff > 0) || (currentIndex === words.length - 1 && diff < 0)) {
-        setDragY(activeDiff * 0.22);
-      } else {
-        setDragY(activeDiff);
-      }
+      onDragMove(moveEvent.clientY, moveEvent.clientX);
     };
 
-    const onMouseUp = (upEvent) => {
+    const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-
-      if (!draggingStarted) {
-        setDragY(0);
-        return;
-      }
-
-      setIsDragging(false);
-      suppressClick.current = true;
-      setTimeout(() => {
-        suppressClick.current = false;
-      }, 120);
-
-      const currentDiff = upEvent.clientY - touchStartY.current;
-      const elapsed = Math.max(1, Date.now() - touchStartTime.current);
-      const velocity = currentDiff / elapsed;
-
-      if ((currentDiff < -65 || velocity < -0.45) && currentIndex < words.length - 1) {
-        isTransitioningRef.current = true;
-        playSwoosh();
-        setTransitionState('next');
-
-        setTimeout(() => {
-          setCurrentIndex((i) => i + 1);
-          setIsRevealed(false);
-          setDragY(0);
-          setTransitionState(null);
-          isTransitioningRef.current = false;
-        }, 320);
-      } else if ((currentDiff > 65 || velocity > 0.45) && currentIndex > 0) {
-        isTransitioningRef.current = true;
-        playSwoosh();
-        setTransitionState('prev');
-
-        setTimeout(() => {
-          setCurrentIndex((i) => i - 1);
-          setIsRevealed(false);
-          setDragY(0);
-          setTransitionState(null);
-          isTransitioningRef.current = false;
-        }, 320);
-      } else {
-        setTransitionState('snapback');
-        setTimeout(() => {
-          setDragY(0);
-          setTransitionState(null);
-        }, 240);
-      }
+      onDragEnd();
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -318,50 +396,47 @@ export default function TikTokFeed({
     );
   }
 
-  // Calculate dynamic transform & transition styles
+  // Calculate dynamic transform & transition styles with unified calc(% + px) coordinates
   const getStyleForSlot = (slot) => {
-    const isTransitioning = transitionState !== null;
-    const transitionTiming =
-      transitionState === 'snapback'
-        ? 'transform 240ms cubic-bezier(0.25, 1, 0.5, 1), opacity 240ms ease-out'
-        : 'transform 320ms cubic-bezier(0.2, 0.95, 0.3, 1), opacity 320ms ease-out';
+    const transitionTiming = 'transform 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 340ms ease-out';
+    const snapbackTiming = 'transform 260ms cubic-bezier(0.25, 1, 0.4, 1), opacity 260ms ease-out';
 
     if (slot === 'current') {
       if (transitionState === 'next') {
         return {
-          transform: 'translate3d(0, -100%, 0) scale(0.96)',
-          opacity: 0.8,
+          transform: 'translate3d(0, calc(-100% + 0px), 0) scale(0.94)',
+          opacity: 0.75,
           transition: transitionTiming,
           willChange: 'transform, opacity'
         };
       }
       if (transitionState === 'prev') {
         return {
-          transform: 'translate3d(0, 100%, 0) scale(0.96)',
-          opacity: 0.8,
+          transform: 'translate3d(0, calc(100% + 0px), 0) scale(0.94)',
+          opacity: 0.75,
           transition: transitionTiming,
           willChange: 'transform, opacity'
         };
       }
       if (transitionState === 'snapback') {
         return {
-          transform: 'translate3d(0, 0, 0) scale(1)',
+          transform: 'translate3d(0, calc(0% + 0px), 0) scale(1)',
           opacity: 1,
-          transition: transitionTiming,
+          transition: snapbackTiming,
           willChange: 'transform, opacity'
         };
       }
       if (isDragging) {
-        const progress = Math.min(Math.abs(dragY) / 500, 1);
+        const progress = Math.min(Math.abs(dragY) / 400, 1);
         return {
-          transform: `translate3d(0, ${dragY}px, 0) scale(${1 - progress * 0.04})`,
+          transform: `translate3d(0, calc(0% + ${dragY}px), 0) scale(${1 - progress * 0.05})`,
           opacity: 1 - progress * 0.2,
           transition: 'none',
           willChange: 'transform, opacity'
         };
       }
       return {
-        transform: 'translate3d(0, 0, 0) scale(1)',
+        transform: 'translate3d(0, calc(0% + 0px), 0) scale(1)',
         opacity: 1,
         transition: 'none'
       };
@@ -370,19 +445,28 @@ export default function TikTokFeed({
     if (slot === 'next') {
       if (transitionState === 'next') {
         return {
-          transform: 'translate3d(0, 0, 0) scale(1)',
+          transform: 'translate3d(0, calc(0% + 0px), 0) scale(1)',
           opacity: 1,
           transition: transitionTiming,
-          willChange: 'transform, opacity',
+          willChange: 'transform',
           boxShadow: '0 -25px 60px -10px rgba(0, 0, 0, 0.95)'
         };
       }
       if (transitionState === 'snapback') {
+        if (snapbackDirection === 'next') {
+          return {
+            transform: 'translate3d(0, calc(100% + 0px), 0)',
+            opacity: 1,
+            transition: snapbackTiming,
+            willChange: 'transform',
+            boxShadow: '0 -25px 60px -10px rgba(0, 0, 0, 0.95)'
+          };
+        }
         return {
-          transform: 'translate3d(0, 100%, 0)',
-          opacity: 1,
-          transition: transitionTiming,
-          willChange: 'transform'
+          transform: 'translate3d(0, calc(100% + 0px), 0)',
+          opacity: 0,
+          pointerEvents: 'none',
+          transition: 'none'
         };
       }
       if (isDragging && dragY < 0) {
@@ -395,9 +479,8 @@ export default function TikTokFeed({
         };
       }
       return {
-        transform: 'translate3d(0, 100%, 0)',
+        transform: 'translate3d(0, calc(100% + 0px), 0)',
         opacity: 0,
-        visibility: 'hidden',
         pointerEvents: 'none',
         transition: 'none'
       };
@@ -406,19 +489,28 @@ export default function TikTokFeed({
     if (slot === 'prev') {
       if (transitionState === 'prev') {
         return {
-          transform: 'translate3d(0, 0, 0) scale(1)',
+          transform: 'translate3d(0, calc(0% + 0px), 0) scale(1)',
           opacity: 1,
           transition: transitionTiming,
-          willChange: 'transform, opacity',
+          willChange: 'transform',
           boxShadow: '0 25px 60px -10px rgba(0, 0, 0, 0.95)'
         };
       }
       if (transitionState === 'snapback') {
+        if (snapbackDirection === 'prev') {
+          return {
+            transform: 'translate3d(0, calc(-100% + 0px), 0)',
+            opacity: 1,
+            transition: snapbackTiming,
+            willChange: 'transform',
+            boxShadow: '0 25px 60px -10px rgba(0, 0, 0, 0.95)'
+          };
+        }
         return {
-          transform: 'translate3d(0, -100%, 0)',
-          opacity: 1,
-          transition: transitionTiming,
-          willChange: 'transform'
+          transform: 'translate3d(0, calc(-100% + 0px), 0)',
+          opacity: 0,
+          pointerEvents: 'none',
+          transition: 'none'
         };
       }
       if (isDragging && dragY > 0) {
@@ -431,9 +523,8 @@ export default function TikTokFeed({
         };
       }
       return {
-        transform: 'translate3d(0, -100%, 0)',
+        transform: 'translate3d(0, calc(-100% + 0px), 0)',
         opacity: 0,
-        visibility: 'hidden',
         pointerEvents: 'none',
         transition: 'none'
       };
@@ -448,6 +539,7 @@ export default function TikTokFeed({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       onMouseDown={handleMouseDown}
       onClickCapture={handleClickCapture}
       className="relative flex-1 flex flex-col items-center justify-center w-full h-full p-0 sm:px-4 sm:pt-14 sm:pb-4 overflow-hidden select-none touch-pan-y-only cursor-grab active:cursor-grabbing"
@@ -456,21 +548,23 @@ export default function TikTokFeed({
         ref={containerRef}
         className="relative w-full sm:max-w-md h-full sm:max-h-[84dvh] overflow-hidden rounded-none sm:rounded-[36px]"
       >
-        {/* Previous Card (Slides in from top when dragging down) */}
+        {/* Previous Card (Slides in from top when dragging down or during prev transition/snapback) */}
         {prevWord && (
           <div
             key={`prev-${prevWord.id}`}
             className={`absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none ${
-              (isDragging && dragY > 0) || transitionState === 'prev' ? 'z-30' : 'z-10'
+              (isDragging && dragY > 0) || transitionState === 'prev' || (transitionState === 'snapback' && snapbackDirection === 'prev')
+                ? 'z-30'
+                : 'z-10'
             }`}
             style={getStyleForSlot('prev')}
-            aria-hidden={!isDragging && !transitionState}
+            aria-hidden={!isDragging && transitionState !== 'prev' && (transitionState !== 'snapback' || snapbackDirection !== 'prev')}
           >
             <WordCard
               word={prevWord}
               onSpeak={onSpeak}
               isRevealed={false}
-              onToggleReveal={() => {}}
+              onToggleReveal={noop}
               onToggleFavorite={onToggleFavorite}
               onOpenDeepDive={onOpenDeepDive}
               currentAccent={currentAccent}
@@ -497,21 +591,23 @@ export default function TikTokFeed({
           />
         </div>
 
-        {/* Next Card (Slides in from bottom when dragging up) */}
+        {/* Next Card (Slides in from bottom when dragging up or during next transition/snapback) */}
         {nextWord && (
           <div
             key={`next-${nextWord.id}`}
             className={`absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none ${
-              (isDragging && dragY < 0) || transitionState === 'next' ? 'z-30' : 'z-10'
+              (isDragging && dragY < 0) || transitionState === 'next' || (transitionState === 'snapback' && snapbackDirection === 'next')
+                ? 'z-30'
+                : 'z-10'
             }`}
             style={getStyleForSlot('next')}
-            aria-hidden={!isDragging && !transitionState}
+            aria-hidden={!isDragging && transitionState !== 'next' && (transitionState !== 'snapback' || snapbackDirection !== 'next')}
           >
             <WordCard
               word={nextWord}
               onSpeak={onSpeak}
               isRevealed={false}
-              onToggleReveal={() => {}}
+              onToggleReveal={noop}
               onToggleFavorite={onToggleFavorite}
               onOpenDeepDive={onOpenDeepDive}
               currentAccent={currentAccent}
@@ -523,3 +619,8 @@ export default function TikTokFeed({
     </div>
   );
 }
+
+const noop = () => {};
+
+const TikTokFeed = memo(TikTokFeedComponent);
+export default TikTokFeed;

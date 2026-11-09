@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import TopBarMinimal from './components/TopBarMinimal';
 import TikTokFeed from './components/TikTokFeed';
-import OxfordDeepDiveModal from './components/OxfordDeepDiveModal';
-import OxfordBrowserModal from './components/OxfordBrowserModal';
 import { speakWord, getAccent, setAccent } from './utils/speech';
 import { isSoundEnabled, toggleSound, playTap } from './utils/sound';
+
+// Code-split heavy modals to drastically reduce initial JS bundle size and accelerate TTI
+const OxfordDeepDiveModal = lazy(() => import('./components/OxfordDeepDiveModal'));
+const OxfordBrowserModal = lazy(() => import('./components/OxfordBrowserModal'));
 
 export default function App() {
   const [words, setWords] = useState([]);
@@ -20,30 +22,41 @@ export default function App() {
   const [currentAccent, setCurrentAccentState] = useState(getAccent());
 
   const isFetchingMore = useRef(false);
+  const feedAbortControllerRef = useRef(null);
 
-  // Fetch randomized words based on filter
-  const fetchFeed = async (filter = currentFilter) => {
+  // Fetch randomized words based on filter with AbortController for race-free switching
+  const fetchFeed = useCallback(async (filter) => {
+    if (feedAbortControllerRef.current) {
+      feedAbortControllerRef.current.abort();
+    }
+    const ac = new AbortController();
+    feedAbortControllerRef.current = ac;
+
     setLoading(true);
     try {
-      const res = await fetch(`/api/feed?filter=${filter}&limit=30&_t=${Date.now()}`);
+      const res = await fetch(`/api/feed?filter=${filter}&limit=30`, { signal: ac.signal });
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.words) {
         setWords(data.words);
       }
     } catch (err) {
-      console.error('Error loading feed:', err);
+      if (err.name !== 'AbortError') {
+        console.error('Error loading feed:', err);
+      }
     } finally {
-      setLoading(false);
+      if (feedAbortControllerRef.current === ac) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   // Infinite scroll: load next random batch from Oxford 3000 catalog
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (isFetchingMore.current) return;
     isFetchingMore.current = true;
     try {
       const res = await fetch(
-        `/api/feed?filter=${currentFilter}&limit=20&_t=${Date.now()}`
+        `/api/feed?filter=${currentFilter}&limit=20`
       );
       const data = await res.json();
       if (data.success && data.words?.length > 0) {
@@ -58,22 +71,27 @@ export default function App() {
     } finally {
       isFetchingMore.current = false;
     }
-  };
+  }, [currentFilter]);
 
   // Update a single word in state after live Oxford API enrichment
-  const handleWordUpdated = (enrichedWord) => {
+  const handleWordUpdated = useCallback((enrichedWord) => {
     if (!enrichedWord) return;
     setWords((prev) =>
       prev.map((w) => (w.id === enrichedWord.id ? { ...w, ...enrichedWord } : w))
     );
-  };
+  }, []);
 
   useEffect(() => {
     fetchFeed(currentFilter);
-  }, [currentFilter]);
+    return () => {
+      if (feedAbortControllerRef.current) {
+        feedAbortControllerRef.current.abort();
+      }
+    };
+  }, [currentFilter, fetchFeed]);
 
   // Toggle favorite / save word (supports optional force boolean)
-  const handleToggleFavorite = async (wordId, force) => {
+  const handleToggleFavorite = useCallback(async (wordId, force) => {
     try {
       // Optimistic instant feedback
       setWords((prev) =>
@@ -100,30 +118,40 @@ export default function App() {
     } catch (err) {
       console.error('Error toggling favorite:', err);
     }
-  };
+  }, []);
 
   // Pronunciation
-  const handleSpeak = (wordOrText, customOpts = {}) => {
+  const handleSpeak = useCallback((wordOrText, customOpts = {}) => {
     speakWord(wordOrText, { accent: currentAccent, ...customOpts });
-  };
+  }, [currentAccent]);
 
-  const handleToggleAccent = () => {
-    const next = currentAccent === 'en-GB' ? 'en-US' : 'en-GB';
-    setAccent(next);
-    setCurrentAccentState(next);
+  const handleToggleAccent = useCallback(() => {
+    setCurrentAccentState((prev) => {
+      const next = prev === 'en-GB' ? 'en-US' : 'en-GB';
+      setAccent(next);
+      return next;
+    });
     playTap();
-  };
+  }, []);
 
-  const handleToggleSound = () => {
+  const handleToggleSound = useCallback(() => {
     const newState = toggleSound();
     setSoundOn(newState);
-  };
+  }, []);
+
+  const handleOpenBrowser = useCallback(() => {
+    setIsBrowserOpen(true);
+  }, []);
 
   return (
     <div className="relative w-full h-screen h-[100dvh] bg-noir flex flex-col justify-between overflow-hidden select-none">
       
-      {/* Subtle Analog Film Grain Texture (Photo Aesthetic) */}
-      <svg className="fixed inset-0 w-full h-full pointer-events-none opacity-[0.035] z-0" xmlns="http://www.w3.org/2000/svg">
+      {/* Subtle Analog Film Grain Texture (Isolated onto GPU Layer) */}
+      <svg
+        className="fixed inset-0 w-full h-full pointer-events-none opacity-[0.035] z-0"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ transform: 'translate3d(0, 0, 0)', contain: 'strict', willChange: 'opacity' }}
+      >
         <filter id="noise">
           <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="3" stitchTiles="stitch" />
         </filter>
@@ -136,7 +164,7 @@ export default function App() {
         onFilterChange={setCurrentFilter}
         soundOn={soundOn}
         onToggleSound={handleToggleSound}
-        onOpenBrowser={() => setIsBrowserOpen(true)}
+        onOpenBrowser={handleOpenBrowser}
       />
 
       {/* Main TikTok Feed Container */}
@@ -162,35 +190,38 @@ export default function App() {
         )}
       </main>
 
-      {/* Oxford Multidimensional Deep Dive Sheet */}
-      {deepDiveWord && (
-        <OxfordDeepDiveModal
-          word={deepDiveWord}
-          onClose={() => setDeepDiveWord(null)}
-          onSpeak={handleSpeak}
-          currentAccent={currentAccent}
-          onWordUpdated={handleWordUpdated}
-        />
-      )}
+      {/* Lazy Suspense Fallback for Modals */}
+      <Suspense fallback={null}>
+        {/* Oxford Multidimensional Deep Dive Sheet */}
+        {deepDiveWord && (
+          <OxfordDeepDiveModal
+            word={deepDiveWord}
+            onClose={() => setDeepDiveWord(null)}
+            onSpeak={handleSpeak}
+            currentAccent={currentAccent}
+            onWordUpdated={handleWordUpdated}
+          />
+        )}
 
-      {/* Oxford 3000™ Search & Live Lookup Sheet */}
-      {isBrowserOpen && (
-        <OxfordBrowserModal
-          onClose={() => setIsBrowserOpen(false)}
-          onSpeak={handleSpeak}
-          onToggleFavorite={handleToggleFavorite}
-          onSelectWord={(selected) => {
-            setWords((prev) => {
-              const exists = prev.some((w) => w.id === selected.id);
-              return exists
-                ? prev.map((w) => (w.id === selected.id ? selected : w))
-                : [selected, ...prev];
-            });
-            setIsBrowserOpen(false);
-            setDeepDiveWord(selected);
-          }}
-        />
-      )}
+        {/* Oxford 3000™ Search & Live Lookup Sheet */}
+        {isBrowserOpen && (
+          <OxfordBrowserModal
+            onClose={() => setIsBrowserOpen(false)}
+            onSpeak={handleSpeak}
+            onToggleFavorite={handleToggleFavorite}
+            onSelectWord={(selected) => {
+              setWords((prev) => {
+                const exists = prev.some((w) => w.id === selected.id);
+                return exists
+                  ? prev.map((w) => (w.id === selected.id ? selected : w))
+                  : [selected, ...prev];
+              });
+              setIsBrowserOpen(false);
+              setDeepDiveWord(selected);
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

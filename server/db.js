@@ -38,10 +38,14 @@ if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
 
 const db = new DatabaseSync(effectiveDbPath);
 
-// Enable WAL mode & busy timeout for high performance concurrency
+// Enable WAL mode & busy timeout for high performance concurrency, plus memory optimizations
 try {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA busy_timeout = 5000;');
+  db.exec('PRAGMA synchronous = NORMAL;');
+  db.exec('PRAGMA cache_size = -32000;');
+  db.exec('PRAGMA temp_store = MEMORY;');
+  db.exec('PRAGMA mmap_size = 268435456;');
 } catch (e) {
   try {
     db.exec('PRAGMA journal_mode = MEMORY;');
@@ -123,6 +127,9 @@ try {
 
     CREATE INDEX IF NOT EXISTS idx_progress_next_review ON user_progress(next_review);
     CREATE INDEX IF NOT EXISTS idx_progress_state ON user_progress(state);
+    CREATE INDEX IF NOT EXISTS idx_progress_favorite ON user_progress(is_favorite);
+    CREATE INDEX IF NOT EXISTS idx_words_pos ON words(part_of_speech);
+    CREATE INDEX IF NOT EXISTS idx_words_cefr_enriched ON words(cefr_level, enriched_at);
 
     CREATE TABLE IF NOT EXISTS user_profile (
       id INTEGER PRIMARY KEY,

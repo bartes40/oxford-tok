@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   Search,
   X,
@@ -14,7 +14,59 @@ import {
 import { playTap, playGood } from '../utils/sound';
 import StarGlint from './StarGlint';
 
-export default function OxfordBrowserModal({
+const OxfordBrowserRow = memo(function OxfordBrowserRow({
+  item,
+  isEnriching,
+  onOpenWord,
+  onSpeak
+}) {
+  const isReady = item.definition_pl && item.definition_pl !== 'Ładowanie z Oxford API...';
+
+  return (
+    <div
+      onClick={() => onOpenWord(item)}
+      className="group p-3.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.07] border border-white/10 hover:border-white/20 transition-all flex items-center justify-between gap-3 cursor-pointer"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-sans font-bold text-lg text-white group-hover:text-cyan-200 transition-colors">
+            {item.word}
+          </span>
+          <span className="text-[10px] font-tech-mono font-bold px-1.5 py-0.5 rounded bg-white/10 text-neutral-300 border border-white/15">
+            {item.cefr_level || 'B2'}
+          </span>
+          <span className="text-xs font-tech-mono text-neutral-500 lowercase">
+            {item.part_of_speech}
+          </span>
+        </div>
+
+        <p className="text-xs text-neutral-400 truncate mt-1 font-tech-mono">
+          {isEnriching
+            ? '⚡ Pobieranie pełnego opisu...'
+            : isReady
+            ? item.definition_pl
+            : item.definition_en}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            playTap();
+            onSpeak(item);
+          }}
+          className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-neutral-300 flex items-center justify-center transition-all"
+        >
+          <Volume2 className="w-3.5 h-3.5" />
+        </button>
+        <ArrowUpRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition-colors" />
+      </div>
+    </div>
+  );
+});
+
+function OxfordBrowserModalComponent({
   onClose,
   onSelectWord,
   onSpeak,
@@ -28,32 +80,58 @@ export default function OxfordBrowserModal({
   const [enrichingId, setEnrichingId] = useState(null);
 
   const cefrLevels = ['', 'A1', 'A2', 'B1', 'B2', 'C1'];
+  const searchCacheRef = useRef(new Map());
+  const abortControllerRef = useRef(null);
 
-  const fetchWords = async (q = query, cefr = cefrFilter) => {
+  const fetchWords = useCallback(async (q, cefr) => {
+    const cacheKey = `${(q || '').toLowerCase().trim()}__${cefr || ''}`;
+    if (searchCacheRef.current.has(cacheKey)) {
+      setResults(searchCacheRef.current.get(cacheKey));
+      setLoading(false);
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
+
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/words?q=${encodeURIComponent(q)}&cefr=${encodeURIComponent(cefr)}&limit=80`
+        `/api/words?q=${encodeURIComponent(q)}&cefr=${encodeURIComponent(cefr)}&limit=80`,
+        { signal: ac.signal }
       );
       const data = await res.json();
       if (data.success) {
+        searchCacheRef.current.set(cacheKey, data.words);
         setResults(data.words);
       }
     } catch (e) {
-      console.error('Error searching Oxford 3000:', e);
+      if (e.name !== 'AbortError') {
+        console.error('Error searching Oxford 3000:', e);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === ac) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchWords(query, cefrFilter);
-    }, 220);
-    return () => clearTimeout(timer);
-  }, [query, cefrFilter]);
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [query, cefrFilter, fetchWords]);
 
-  const handleOpenWord = async (wordObj) => {
+  const handleOpenWord = useCallback(async (wordObj) => {
     playTap();
     // If not yet deep-enriched, enrich live from Oxford API right now
     if (!wordObj.senses || wordObj.senses.length === 0 || wordObj.definition_pl === 'Ładowanie z Oxford API...') {
@@ -70,7 +148,7 @@ export default function OxfordBrowserModal({
       setEnrichingId(null);
     }
     onSelectWord(wordObj);
-  };
+  }, [onSelectWord]);
 
   const totalCatalog = stats?.oxfordEngine?.totalCatalog || stats?.srs?.total_words || 4979;
 
@@ -163,57 +241,21 @@ export default function OxfordBrowserModal({
               Brak wyników dla "{query}".
             </div>
           ) : (
-            results.map((item) => {
-              const isEnriching = enrichingId === (item.id || item.word);
-              const isReady = item.definition_pl && item.definition_pl !== 'Ładowanie z Oxford API...';
-
-              return (
-                <div
-                  key={item.id || item.word}
-                  onClick={() => handleOpenWord(item)}
-                  className="group p-3.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.07] border border-white/10 hover:border-white/20 transition-all flex items-center justify-between gap-3 cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-sans font-bold text-lg text-white group-hover:text-cyan-200 transition-colors">
-                        {item.word}
-                      </span>
-                      <span className="text-[10px] font-tech-mono font-bold px-1.5 py-0.5 rounded bg-white/10 text-neutral-300 border border-white/15">
-                        {item.cefr_level || 'B2'}
-                      </span>
-                      <span className="text-xs font-tech-mono text-neutral-500 lowercase">
-                        {item.part_of_speech}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-neutral-400 truncate mt-1 font-tech-mono">
-                      {isEnriching
-                        ? '⚡ Pobieranie pełnego opisu...'
-                        : isReady
-                        ? item.definition_pl
-                        : item.definition_en}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        playTap();
-                        onSpeak(item);
-                      }}
-                      className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-neutral-300 flex items-center justify-center transition-all"
-                    >
-                      <Volume2 className="w-3.5 h-3.5" />
-                    </button>
-                    <ArrowUpRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition-colors" />
-                  </div>
-                </div>
-              );
-            })
+            results.map((item) => (
+              <OxfordBrowserRow
+                key={item.id || item.word}
+                item={item}
+                isEnriching={enrichingId === (item.id || item.word)}
+                onOpenWord={handleOpenWord}
+                onSpeak={onSpeak}
+              />
+            ))
           )}
         </div>
       </div>
     </div>
   );
 }
+
+const OxfordBrowserModal = memo(OxfordBrowserModalComponent);
+export default OxfordBrowserModal;

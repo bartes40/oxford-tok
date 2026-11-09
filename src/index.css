@@ -46,7 +46,7 @@
   );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 20px rgba(255, 255, 255, 0.25));
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.85));
   letter-spacing: -0.035em;
   display: inline-block;
   max-width: 100%;
@@ -55,10 +55,6 @@
   padding-bottom: 0.16em;
   padding-top: 0.04em;
   line-height: 1.14;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
 }
 
 .chrome-text-silver {
@@ -73,7 +69,7 @@
   );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 14px rgba(226, 232, 240, 0.3));
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.85));
   display: inline-block;
   max-width: 100%;
   overflow-wrap: break-word;
@@ -81,10 +77,6 @@
   padding-bottom: 0.16em;
   padding-top: 0.04em;
   line-height: 1.14;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
 }
 
 .chrome-text-subtle {
@@ -98,22 +90,22 @@
   -webkit-text-fill-color: transparent;
 }
 
-/* 4-Point Star Lens Flare Glint Keyframes */
+/* 4-Point Star Lens Flare Glint Keyframes (GPU Compositor Only, Zero Re-rasterize) */
 @keyframes starGlintPulse {
   0%, 100% {
     opacity: 0.45;
     transform: scale(0.85) rotate(0deg);
-    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));
   }
   50% {
     opacity: 1;
     transform: scale(1.35) rotate(90deg);
-    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1)) drop-shadow(0 0 16px rgba(148, 163, 184, 0.9));
   }
 }
 
 .animate-star-glint {
   animation: starGlintPulse 3.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9));
+  will-change: transform, opacity;
 }
 
 /* ========================================================================== */
@@ -134,22 +126,16 @@
   letter-spacing: -0.01em;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.13) 0%,
-    rgba(255, 255, 255, 0.04) 100%
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.06) 100%
   );
-  border: 1px solid rgba(255, 255, 255, 0.26);
+  background-color: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 8px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   box-shadow: 
-    0 0 10px -1px rgba(255, 255, 255, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.4);
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
 }
 
 /* ========================================================================== */
@@ -162,10 +148,6 @@
   color: #ffffff;
   padding-bottom: 2px;
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
 }
 
 .silver-distressed-underline::after {
@@ -228,12 +210,8 @@
   background: radial-gradient(130% 120% at 50% 0%, #0d121c 0%, #030508 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 
-    0 30px 80px -20px rgba(0, 0, 0, 0.95),
+    0 16px 44px -12px rgba(0, 0, 0, 0.85),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
 }
 
 /* Safe area helpers for mobile notches & home bars */
@@ -253,9 +231,11 @@
   padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));
 }
 
-/* Vertical touch gesture lock for TikTok feed */
+/* Custom swipe gesture lock for TikTok feed: prevents native browser scroll stealing JS swipe gestures */
 .touch-pan-y-only {
-  touch-action: pan-y;
+  touch-action: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
 }
 
 .font-display {
@@ -316,88 +296,139 @@
   scrollbar-width: none;
 }
 
-/* 3D Hardware-Accelerated Flashcard Flip Mechanics */
-.perspective-1400 {
-  perspective: 1400px;
-  -webkit-perspective: 1400px;
-}
+/* ========================================================================== */
+/* Flashcard Reveal Architecture:                                             */
+/* MOBILE (< 640px): BEZ ANIMACJI OBRACANIA (ZERO ROTACJI / INSTANT CUT)      */
+/* DESKTOP (>= 640px): Tactile 3D Perspective Hardware-Accelerated Flip       */
+/* ========================================================================== */
 
-.preserve-3d {
-  transform-style: preserve-3d;
-  -webkit-transform-style: preserve-3d;
-}
-
-.flip-card-inner {
+.flashcard-stage {
   position: relative;
   width: 100%;
   height: 100%;
-  transform-style: preserve-3d;
-  -webkit-transform-style: preserve-3d;
-  transition: transform 0.52s cubic-bezier(0.2, 0.8, 0.25, 1);
-  will-change: transform;
 }
 
-.flip-card-inner.is-flipped {
-  transform: rotateY(180deg);
-  -webkit-transform: rotateY(180deg);
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
-.flip-card-front,
-.flip-card-back {
+.flashcard-face {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  backface-visibility: hidden !important;
-  -webkit-backface-visibility: hidden !important;
-  -moz-backface-visibility: hidden !important;
-  transform-style: flat !important;
-  -webkit-transform-style: flat !important;
-  isolation: isolate;
-  contain: paint;
-  -webkit-font-smoothing: antialiased;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
-/* Front Face: Active by default, hidden when flipped */
-.flip-card-front {
-  transform: rotateY(0deg) translateZ(0.5px);
-  -webkit-transform: rotateY(0deg) translateZ(0.5px);
-  z-index: 2;
-  opacity: 1;
-  visibility: visible;
-  transition: opacity 0.12s ease-out 0.21s, visibility 0s linear 0.26s;
+/* -------------------------------------------------------------------------- */
+/* MOBILE (Phones, max-width: 639px): ZERO ANIMACJI OBRACANIA (ZERO ROTATION) */
+/* -------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  .flashcard-stage,
+  .flashcard-inner,
+  .flashcard-face {
+    transform: none !important;
+    -webkit-transform: none !important;
+    perspective: none !important;
+    -webkit-perspective: none !important;
+    transform-style: flat !important;
+    -webkit-transform-style: flat !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+    animation: none !important;
+  }
+
+  /* Awers: widoczny, gdy isRevealed = false */
+  .flashcard-front {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+    z-index: 2;
+    transition: opacity 0.08s ease-out;
+  }
+
+  /* Rewers: ukryty, gdy isRevealed = false */
+  .flashcard-back {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    z-index: 1;
+    transition: opacity 0.08s ease-out;
+  }
+
+  /* Gdy odslonieta: natychmiastowe pokazanie rewersu, BEZ OBRACANIA */
+  .flashcard-inner.is-flipped .flashcard-front {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    z-index: 1;
+  }
+
+  .flashcard-inner.is-flipped .flashcard-back {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+    z-index: 2;
+  }
 }
 
-/* Back Face: Hidden by default, active when flipped */
-.flip-card-back {
-  transform: rotateY(180deg) translateZ(0.5px);
-  -webkit-transform: rotateY(180deg) translateZ(0.5px);
-  z-index: 1;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.12s ease-out, visibility 0s linear 0.26s;
-}
+/* -------------------------------------------------------------------------- */
+/* DESKTOP (Komputery / Tablety, min-width: 640px): Plynny obrot 3D           */
+/* -------------------------------------------------------------------------- */
+@media (min-width: 640px) {
+  .flashcard-stage {
+    perspective: 1400px;
+    -webkit-perspective: 1400px;
+    perspective-origin: 50% 50%;
+  }
 
-/* Midpoint Face Swap When Flipped (180deg) */
-.flip-card-inner.is-flipped .flip-card-front {
-  z-index: 1;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.12s ease-out, visibility 0s linear 0.26s;
-}
+  .flashcard-inner {
+    transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
+    transform-origin: 50% 50%;
+    transition: transform 0.38s cubic-bezier(0.2, 0.85, 0.32, 1);
+    will-change: transform;
+    transform: rotateY(0deg);
+    -webkit-transform: rotateY(0deg);
+  }
 
-.flip-card-inner.is-flipped .flip-card-back {
-  z-index: 2;
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition: opacity 0.12s ease-out 0.21s, visibility 0s linear 0.26s;
-}
+  .flashcard-inner.is-flipped {
+    transform: rotateY(180deg);
+    -webkit-transform: rotateY(180deg);
+  }
 
-.flip-card-inner:not(.is-flipped) .flip-card-back {
-  pointer-events: none;
+  .flashcard-face {
+    backface-visibility: hidden !important;
+    -webkit-backface-visibility: hidden !important;
+    transform-style: flat !important;
+    -webkit-transform-style: flat !important;
+    outline: 1px solid transparent;
+  }
+
+  .flashcard-front {
+    transform: rotateY(0deg);
+    -webkit-transform: rotateY(0deg);
+    z-index: 2;
+    pointer-events: auto;
+  }
+
+  .flashcard-back {
+    transform: rotateY(180deg);
+    -webkit-transform: rotateY(180deg);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .flashcard-inner.is-flipped .flashcard-front {
+    pointer-events: none;
+  }
+
+  .flashcard-inner.is-flipped .flashcard-back {
+    pointer-events: auto;
+  }
 }
 
 /* Industrial Mechanical Slide Transitions */

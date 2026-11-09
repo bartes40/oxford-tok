@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import {
   SlidersHorizontal,
   Volume2,
@@ -11,7 +11,7 @@ import {
 import { playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
 
-export default function TopBarMinimal({
+function TopBarMinimalComponent({
   currentFilter,
   onFilterChange,
   soundOn,
@@ -157,3 +157,6 @@ export default function TopBarMinimal({
     </>
   );
 }
+
+const TopBarMinimal = memo(TopBarMinimalComponent);
+export default TopBarMinimal;

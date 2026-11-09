@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import {
   X,
   Volume2,
@@ -13,7 +13,32 @@ import {
 import { playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
 
-export default function OxfordDeepDiveModal({
+// Tastefully highlight target word in example sentences
+function highlightWord(sentence, targetWord) {
+  if (!sentence || !targetWord) return sentence;
+  try {
+    const stem = targetWord.length > 4 ? targetWord.slice(0, -1) : targetWord;
+    const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = sentence.split(new RegExp(`(\\b${escaped}\\w*\\b)`, 'gi'));
+    return parts.map((part, i) => {
+      if (part.toLowerCase().startsWith(stem.toLowerCase())) {
+        return (
+          <span
+            key={i}
+            className="silver-distressed-badge"
+          >
+            {part}
+          </span>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  } catch (e) {
+    return sentence;
+  }
+}
+
+function OxfordDeepDiveModalComponent({
   word: initialWord,
   onClose,
   onSpeak,
@@ -51,31 +76,6 @@ export default function OxfordDeepDiveModal({
   }, [initialWord?.id, initialWord?.word]);
 
   if (!word) return null;
-
-  // Tastefully highlight target word in example sentences
-  const highlightWord = (sentence, targetWord) => {
-    if (!sentence || !targetWord) return sentence;
-    try {
-      const stem = targetWord.length > 4 ? targetWord.slice(0, -1) : targetWord;
-      const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const parts = sentence.split(new RegExp(`(\\b${escaped}\\w*\\b)`, 'gi'));
-      return parts.map((part, i) => {
-        if (part.toLowerCase().startsWith(stem.toLowerCase())) {
-          return (
-            <span
-              key={i}
-              className="silver-distressed-badge"
-            >
-              {part}
-            </span>
-          );
-        }
-        return <span key={i}>{part}</span>;
-      });
-    } catch (e) {
-      return sentence;
-    }
-  };
 
   const senses = Array.isArray(word.senses) && word.senses.length > 0 ? word.senses : null;
   const verbForms = Array.isArray(word.verb_forms) ? word.verb_forms : [];
@@ -368,3 +368,6 @@ export default function OxfordDeepDiveModal({
     </div>
   );
 }
+
+const OxfordDeepDiveModal = memo(OxfordDeepDiveModalComponent);
+export default OxfordDeepDiveModal;

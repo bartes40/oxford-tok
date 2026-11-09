@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, memo } from 'react';
 import {
   Volume2,
   Heart,
@@ -8,7 +8,45 @@ import {
 import { playGood, playFlip, playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
 
-export default function WordCard({
+// Pure helper to format Polish definitions without recreating function every render
+function splitDefinitions(str = '') {
+  const result = [];
+  let current = '';
+  let inParen = 0;
+  for (const ch of str) {
+    if (ch === '(') inParen++;
+    else if (ch === ')') inParen = Math.max(0, inParen - 1);
+    if ((ch === ',' || ch === ';') && inParen === 0) {
+      if (current.trim()) result.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
+
+// Tastefully scale large typography so words fit gracefully without clipping
+function getHeadingSizeClass(text = '') {
+  const clean = (text || '').trim();
+  const len = clean.length;
+  if (len <= 6) {
+    return 'text-4xl xs:text-5xl sm:text-6xl md:text-7xl';
+  }
+  if (len <= 9) {
+    return 'text-3xl xs:text-4xl sm:text-5xl md:text-6xl';
+  }
+  if (len <= 13) {
+    return 'text-2xl xs:text-3xl sm:text-4xl md:text-5xl';
+  }
+  if (len <= 17) {
+    return 'text-xl xs:text-2xl sm:text-3xl md:text-4xl';
+  }
+  return 'text-lg xs:text-xl sm:text-2xl md:text-3xl';
+}
+
+function WordCardComponent({
   word,
   onSpeak,
   isRevealed = false,
@@ -19,26 +57,23 @@ export default function WordCard({
   onToggleAccent
 }) {
   const [flyingHearts, setFlyingHearts] = useState([]);
-  const [isFlipping, setIsFlipping] = useState(false);
   const cardRef = useRef(null);
   const clickTimerRef = useRef(null);
-  const flipTimerRef = useRef(null);
   const lastClickTimeRef = useRef(0);
+  const lastFlipTimeRef = useRef(0);
   const isRapidClickingRef = useRef(false);
   const rapidResetTimerRef = useRef(null);
   const pendingFirstTapPosRef = useRef(null);
+  const heartTimersRef = useRef(new Set());
 
-  // Track 3D flip lifecycle to freeze scroll layers and isolate textures during rotation
-  useEffect(() => {
-    setIsFlipping(true);
-    if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
-    flipTimerRef.current = setTimeout(() => {
-      setIsFlipping(false);
-    }, 540);
-    return () => {
-      if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
-    };
-  }, [isRevealed]);
+  // Snappy, instant reveal trigger
+  const triggerFlip = () => {
+    const now = Date.now();
+    if (now - lastFlipTimeRef.current < 160) return;
+    lastFlipTimeRef.current = now;
+    playFlip();
+    if (onToggleReveal) onToggleReveal();
+  };
 
   // Clear pending flip and rapid timers on word change or unmount
   useEffect(() => {
@@ -50,14 +85,12 @@ export default function WordCard({
         clearTimeout(clickTimerRef.current);
         clickTimerRef.current = null;
       }
-      if (flipTimerRef.current) {
-        clearTimeout(flipTimerRef.current);
-        flipTimerRef.current = null;
-      }
       if (rapidResetTimerRef.current) {
         clearTimeout(rapidResetTimerRef.current);
         rapidResetTimerRef.current = null;
       }
+      heartTimersRef.current.forEach((t) => clearTimeout(t));
+      heartTimersRef.current.clear();
     };
   }, [word.id]);
 
@@ -132,51 +165,34 @@ export default function WordCard({
   };
 
   // Format Polish translations into clean, scannable typography
-  const plMissing =
-    !word.definition_pl ||
-    word.definition_pl.trim().toLowerCase() === (word.word || '').trim().toLowerCase() ||
-    word.definition_pl.startsWith('Ładowanie');
-  const splitDefinitions = (str = '') => {
-    const result = [];
-    let current = '';
-    let inParen = 0;
-    for (const ch of str) {
-      if (ch === '(') inParen++;
-      else if (ch === ')') inParen = Math.max(0, inParen - 1);
-      if ((ch === ',' || ch === ';') && inParen === 0) {
-        if (current.trim()) result.push(current.trim());
-        current = '';
-      } else {
-        current += ch;
-      }
-    }
-    if (current.trim()) result.push(current.trim());
-    return result;
-  };
+  const plMissing = useMemo(() => {
+    return (
+      !word.definition_pl ||
+      word.definition_pl.trim().toLowerCase() === (word.word || '').trim().toLowerCase() ||
+      word.definition_pl.startsWith('Ładowanie')
+    );
+  }, [word.definition_pl, word.word]);
 
-  const polishMeanings = plMissing ? [] : splitDefinitions(word.definition_pl);
+  const polishMeanings = useMemo(() => {
+    return plMissing ? [] : splitDefinitions(word.definition_pl);
+  }, [plMissing, word.definition_pl]);
 
-  const primaryMeaningPl = plMissing ? 'Tłumaczenie w przygotowaniu…' : polishMeanings[0] || word.definition_pl;
-  const secondaryMeaningsPl = polishMeanings.slice(1, 4);
+  const primaryMeaningPl = useMemo(() => {
+    return plMissing ? 'Tłumaczenie w przygotowaniu…' : polishMeanings[0] || word.definition_pl;
+  }, [plMissing, polishMeanings, word.definition_pl]);
 
-  // Tastefully scale large typography so words fit gracefully without clipping
-  const getHeadingSizeClass = (text = '') => {
-    const clean = (text || '').trim();
-    const len = clean.length;
-    if (len <= 6) {
-      return 'text-4xl xs:text-5xl sm:text-6xl md:text-7xl';
-    }
-    if (len <= 9) {
-      return 'text-3xl xs:text-4xl sm:text-5xl md:text-6xl';
-    }
-    if (len <= 13) {
-      return 'text-2xl xs:text-3xl sm:text-4xl md:text-5xl';
-    }
-    if (len <= 17) {
-      return 'text-xl xs:text-2xl sm:text-3xl md:text-4xl';
-    }
-    return 'text-lg xs:text-xl sm:text-2xl md:text-3xl';
-  };
+  const secondaryMeaningsPl = useMemo(() => {
+    return polishMeanings.slice(1, 4);
+  }, [polishMeanings]);
+
+  // Memoized highlighted examples to completely avoid regex parsing on every animation tick
+  const highlightedExampleEn = useMemo(() => {
+    return renderHighlightedExampleEn(word.example_en, word.word);
+  }, [word.example_en, word.word]);
+
+  const highlightedExamplePl = useMemo(() => {
+    return renderHighlightedExamplePl(word.example_pl, word.definition_pl);
+  }, [word.example_pl, word.definition_pl]);
 
   // Helper to spawn floating heart at specific coordinates
   const spawnFlyingHeart = (x, y) => {
@@ -189,9 +205,11 @@ export default function WordCard({
       { id: heartId, x: Math.round(x + offsetX), y: Math.round(y + offsetY), rot: heartRot }
     ]);
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       setFlyingHearts((prev) => prev.filter((h) => h.id !== heartId));
+      heartTimersRef.current.delete(timer);
     }, 900);
+    heartTimersRef.current.add(timer);
   };
 
   const handleCardClick = (e) => {
@@ -218,8 +236,8 @@ export default function WordCard({
 
     const now = Date.now();
     const diff = now - lastClickTimeRef.current;
-    const RAPID_CLICK_THRESHOLD = 320; // ms threshold between clicks
-    const RAPID_RESET_DELAY = 380;     // ms before ending rapid streak
+    const RAPID_CLICK_THRESHOLD = 220; // ms threshold between clicks for double-tap
+    const RAPID_RESET_DELAY = 280;     // ms before ending rapid streak
 
     // Check if this tap is part of a rapid clicking sequence (double-tap, multi-tap, infinite spam)
     const isRapid = isRapidClickingRef.current || (diff > 0 && diff < RAPID_CLICK_THRESHOLD);
@@ -263,11 +281,6 @@ export default function WordCard({
       return;
     }
 
-    // Guard: ignore single clicks during mid-flip 3D transition
-    if (isFlipping) {
-      return;
-    }
-
     // Tap 1 of a potential single-click flip or rapid-like sequence
     lastClickTimeRef.current = now;
     pendingFirstTapPosRef.current = { x, y };
@@ -276,13 +289,12 @@ export default function WordCard({
       clearTimeout(clickTimerRef.current);
     }
 
-    // Schedule card flip after debounce window (if no subsequent tap arrives within 280ms, this was a single click to flip)
+    // Snappy card reveal (70ms debounce for natural responsiveness while preserving double-tap like)
     clickTimerRef.current = setTimeout(() => {
       clickTimerRef.current = null;
       pendingFirstTapPosRef.current = null;
-      playFlip();
-      if (onToggleReveal) onToggleReveal();
-    }, 280);
+      triggerFlip();
+    }, 70);
   };
 
   const displayedPhonetic =
@@ -292,11 +304,11 @@ export default function WordCard({
     <div
       ref={cardRef}
       onClick={handleCardClick}
-      className="relative w-full sm:max-w-md mx-auto h-full sm:max-h-[84dvh] perspective-1400 select-none cursor-pointer"
+      className="relative w-full sm:max-w-md mx-auto h-full sm:max-h-[84dvh] flashcard-stage select-none cursor-pointer"
     >
-      {/* 3D Flipping Core Canvas */}
+      {/* Core Canvas (Instant state switch on mobile, 3D on desktop) */}
       <div
-        className={`relative w-full h-full flip-card-inner ${
+        className={`relative w-full h-full flashcard-inner ${
           isRevealed ? 'is-flipped' : ''
         }`}
       >
@@ -304,12 +316,9 @@ export default function WordCard({
         {/* AWERS (FRONT): High-Fashion Obsidian Chrome ("ASCENSION")    */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className={`flip-card-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden ${
-          isFlipping ? 'pointer-events-none select-none' : ''
-        }`}>
-          <div className={`w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 ${
-            isFlipping ? 'overflow-hidden' : 'overflow-y-auto'
-          } no-scrollbar`}>
+        <div className="flashcard-face flashcard-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white">
+          <div className="w-full h-full rounded-none sm:rounded-[36px] overflow-hidden">
+            <div className="w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
           
           {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Quick Rotate */}
           <div className="shrink-0 flex items-center justify-between">
@@ -340,7 +349,7 @@ export default function WordCard({
                   }
                   if (onToggleFavorite) onToggleFavorite(word.id);
                 }}
-                className={`w-8 h-8 rounded-full border backdrop-blur-md flex items-center justify-center transition-all active:scale-90 ${
+                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
                   word.is_favorite
                     ? 'bg-rose-500 border-rose-400 text-white shadow-[0_0_16px_rgba(244,63,94,0.7)]'
                     : 'bg-white/[0.08] hover:bg-white/[0.16] border-white/20 text-neutral-300 hover:text-white'
@@ -371,12 +380,11 @@ export default function WordCard({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  playFlip();
-                  if (onToggleReveal) onToggleReveal();
+                  triggerFlip();
                 }}
                 className="inline-flex items-center gap-1.5 font-tech-mono text-[11px] text-neutral-300 bg-white/[0.08] hover:bg-white/[0.14] active:scale-95 px-3 py-1 rounded-full border border-white/20 transition-all shadow-xs"
               >
-                <RotateCw className="w-3 h-3 text-white animate-spin-slow" />
+                <RotateCw className="w-3 h-3 text-white transition-transform duration-300 hover:rotate-180" />
                 <span>Obróć</span>
               </button>
             </div>
@@ -413,7 +421,7 @@ export default function WordCard({
                   e.stopPropagation();
                   onSpeak(word);
                 }}
-                className="inline-flex items-center gap-2 font-tech-mono font-semibold text-xs sm:text-sm text-neutral-100 bg-white/[0.08] hover:bg-white/[0.14] active:scale-95 px-3.5 py-1.5 rounded-full border border-white/20 backdrop-blur-md transition-all shadow-[0_4px_16px_rgba(0,0,0,0.5)]"
+                className="inline-flex items-center gap-2 font-tech-mono font-semibold text-xs sm:text-sm text-neutral-100 bg-white/[0.08] hover:bg-white/[0.14] active:scale-95 px-3.5 py-1.5 rounded-full border border-white/20 transition-all shadow-[0_4px_16px_rgba(0,0,0,0.5)]"
                 title="Odsłuchaj wymowę"
               >
                 <Volume2 className="w-4 h-4 text-white" />
@@ -442,7 +450,7 @@ export default function WordCard({
 
             {/* Authentic Context Sentence with High-Fashion Technical Header */}
             {word.example_en && (
-              <div className="mt-3.5 sm:mt-5 p-3.5 sm:p-5 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner">
+              <div className="mt-3.5 sm:mt-5 p-3.5 sm:p-5 rounded-2xl bg-white/[0.04] border border-white/[0.12] shadow-inner">
                 <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest mb-2">
                   <span className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
@@ -451,7 +459,7 @@ export default function WordCard({
                   <span>OXFORD 3000™</span>
                 </div>
                 <p className="font-sans text-xs xs:text-sm sm:text-base text-neutral-200 font-normal italic leading-relaxed">
-                  "{renderHighlightedExampleEn(word.example_en, word.word)}"
+                  "{highlightedExampleEn}"
                 </p>
               </div>
             )}
@@ -482,6 +490,7 @@ export default function WordCard({
               </span>
             </div>
           </div>
+          </div>
         </div>
         </div>
 
@@ -489,12 +498,9 @@ export default function WordCard({
         {/* REWERS (BACK): High-Fashion Noir Obsidian Chrome             */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className={`flip-card-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden ${
-          isFlipping ? 'pointer-events-none select-none' : ''
-        }`}>
-          <div className={`w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 ${
-            isFlipping ? 'overflow-hidden' : 'overflow-y-auto'
-          } no-scrollbar`}>
+        <div className="flashcard-face flashcard-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white">
+          <div className="w-full h-full rounded-none sm:rounded-[36px] overflow-hidden">
+            <div className="w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
             
             {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Return */}
             <div className="shrink-0 flex items-center justify-between">
@@ -524,7 +530,7 @@ export default function WordCard({
                     }
                     if (onToggleFavorite) onToggleFavorite(word.id);
                   }}
-                  className={`w-8 h-8 rounded-full border backdrop-blur-md flex items-center justify-center transition-all active:scale-90 ${
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
                     word.is_favorite
                       ? 'bg-rose-500 border-rose-400 text-white shadow-[0_0_16px_rgba(244,63,94,0.7)]'
                       : 'bg-white/[0.08] hover:bg-white/[0.16] border-white/20 text-neutral-300 hover:text-white'
@@ -553,12 +559,11 @@ export default function WordCard({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    playFlip();
-                    if (onToggleReveal) onToggleReveal();
+                    triggerFlip();
                   }}
                   className="inline-flex items-center gap-1.5 font-tech-mono text-[11px] text-neutral-300 bg-white/[0.08] hover:bg-white/[0.14] active:scale-95 px-3 py-1 rounded-full border border-white/20 transition-all shadow-xs"
                 >
-                  <RotateCw className="w-3 h-3 text-white animate-spin-slow" />
+                  <RotateCw className="w-3 h-3 text-white transition-transform duration-300 hover:rotate-180" />
                   <span>Powrót</span>
                 </button>
               </div>
@@ -584,7 +589,7 @@ export default function WordCard({
                   {secondaryMeaningsPl.map((syn, idx) => (
                     <span
                       key={idx}
-                      className="px-2.5 py-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 font-tech-mono text-xs sm:text-sm border border-white/15 backdrop-blur-md shadow-xs"
+                      className="px-2.5 py-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 font-tech-mono text-xs sm:text-sm border border-white/15 shadow-xs"
                     >
                       {syn}
                     </span>
@@ -594,7 +599,7 @@ export default function WordCard({
 
               {/* Context Box: English Oxford Example + Polish Translation */}
               {word.example_en ? (
-                <div className="mt-3.5 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner space-y-2">
+                <div className="mt-3.5 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-white/[0.04] border border-white/[0.12] shadow-inner space-y-2">
                   <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest">
                     <span className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)]" />
@@ -603,11 +608,11 @@ export default function WordCard({
                     <span>OXFORD 3000™</span>
                   </div>
                   <p className="font-sans text-sm xs:text-base sm:text-lg font-medium text-neutral-100 leading-snug sm:leading-relaxed">
-                    "{renderHighlightedExampleEn(word.example_en, word.word)}"
+                    "{highlightedExampleEn}"
                   </p>
                   {word.example_pl && (
                     <p className="font-sans text-xs xs:text-sm sm:text-base text-neutral-300 font-normal leading-relaxed pt-1.5 border-t border-white/[0.08]">
-                      {renderHighlightedExamplePl(word.example_pl, word.definition_pl)}
+                      {highlightedExamplePl}
                     </p>
                   )}
                 </div>
@@ -615,7 +620,7 @@ export default function WordCard({
 
               {/* Collocations block in Obsidian Glass */}
               {word.collocations && word.collocations.length > 0 && (
-                <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-xl bg-white/[0.025] border border-white/[0.1] backdrop-blur-xs">
+                <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-xl bg-white/[0.03] border border-white/[0.1]">
                   <div className="text-[10px] font-tech-mono font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
                     Typowe połączenia (Collocations)
                   </div>
@@ -663,17 +668,17 @@ export default function WordCard({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    playFlip();
-                    if (onToggleReveal) onToggleReveal();
+                    triggerFlip();
                   }}
                   className="inline-flex items-center gap-1.5 text-xs font-tech-mono text-white bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 px-3.5 py-1 rounded-full border border-white/20 transition-all cursor-pointer font-semibold shadow-xs"
                 >
-                  <RotateCw className="w-3.5 h-3.5 text-white" />
+                  <RotateCw className="w-3.5 h-3.5 text-white transition-transform duration-300 hover:rotate-180" />
                   <span>Powrót</span>
                 </button>
               </div>
             </div>
 
+          </div>
           </div>
         </div>
       </div>
@@ -697,3 +702,23 @@ export default function WordCard({
     </div>
   );
 }
+
+function areWordCardPropsEqual(prev, next) {
+  return (
+    prev.word?.id === next.word?.id &&
+    prev.word?.is_favorite === next.word?.is_favorite &&
+    prev.word?.definition_pl === next.word?.definition_pl &&
+    prev.word?.example_en === next.word?.example_en &&
+    prev.word?.example_pl === next.word?.example_pl &&
+    prev.isRevealed === next.isRevealed &&
+    prev.currentAccent === next.currentAccent &&
+    prev.onSpeak === next.onSpeak &&
+    prev.onToggleReveal === next.onToggleReveal &&
+    prev.onToggleFavorite === next.onToggleFavorite &&
+    prev.onOpenDeepDive === next.onOpenDeepDive &&
+    prev.onToggleAccent === next.onToggleAccent
+  );
+}
+
+const WordCard = memo(WordCardComponent, areWordCardPropsEqual);
+export default WordCard;
