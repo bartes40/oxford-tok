@@ -19,7 +19,10 @@ export function verifyPassword(password, storedHash) {
     if (!storedHash || !storedHash.includes(':')) return false;
     const [salt, key] = storedHash.split(':');
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(key, 'hex'), Buffer.from(hash, 'hex'));
+    const keyBuf = Buffer.from(key, 'hex');
+    const hashBuf = Buffer.from(hash, 'hex');
+    if (keyBuf.length !== hashBuf.length) return false;
+    return crypto.timingSafeEqual(keyBuf, hashBuf);
   } catch (err) {
     return false;
   }
@@ -46,7 +49,10 @@ export function verifyToken(token) {
     if (parts.length !== 3) return null;
     const [header, body, signature] = parts;
     const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) return null;
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
     const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (data.exp && data.exp < Math.floor(Date.now() / 1000)) return null;
     return data;
