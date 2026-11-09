@@ -29,3 +29,5 @@ server.log
 data/*.db-shm
 data/*.db-wal
 data/*.db-journal
+
+.vercel
