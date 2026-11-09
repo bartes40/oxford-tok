@@ -5,7 +5,9 @@ import db from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dataDir = path.join(__dirname, '..', 'data');
+const dataDir = fs.existsSync(path.join(process.cwd(), 'data'))
+  ? path.join(process.cwd(), 'data')
+  : path.join(__dirname, '..', 'data');
 const catalogCachePath = path.join(dataDir, 'oxford3000_catalog.json');
 const masterDictPath = path.join(dataDir, 'oxford_en_pl_master.json');
 

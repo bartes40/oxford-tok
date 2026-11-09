@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const originalDataDir = path.join(__dirname, '..', 'data');
-const originalDbPath = path.join(originalDataDir, 'oxford.db');
+const cwdDbPath = path.join(process.cwd(), 'data', 'oxford.db');
+const relDbPath = path.join(__dirname, '..', 'data', 'oxford.db');
+const originalDbPath = fs.existsSync(cwdDbPath) ? cwdDbPath : relDbPath;
 
 let effectiveDbPath = originalDbPath;
 
