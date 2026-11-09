@@ -55,7 +55,7 @@ export default function StatsModal({ stats, onClose, onResetProgress }) {
               </p>
             </div>
             <div className="flex items-center gap-1.5 bg-white/10 px-3 py-2 rounded-xl border border-white/15">
-              <Flame className="w-4 h-4 text-cyan-300 fill-current" />
+              <Flame className="w-4 h-4 text-white fill-current" />
               <div className="text-right">
                 <div className="text-[9px] font-tech-mono text-neutral-400 uppercase">Streak</div>
                 <div className="font-tech-mono font-bold text-sm text-white">{profile.streak_days} DNI</div>
@@ -75,16 +75,16 @@ export default function StatsModal({ stats, onClose, onResetProgress }) {
                 <div className="text-2xl font-bold font-sans text-neutral-100 mt-0.5">{srs?.new_words || 0}</div>
               </div>
               <div className="bg-white/[0.03] p-3 rounded-xl border border-white/10 text-center">
-                <div className="text-[10px] font-tech-mono text-cyan-400 uppercase">Utrwalane</div>
-                <div className="text-2xl font-bold font-sans text-cyan-200 mt-0.5">{srs?.learning || 0}</div>
+                <div className="text-[10px] font-tech-mono text-neutral-300 uppercase">Utrwalane</div>
+                <div className="text-2xl font-bold font-sans text-white mt-0.5">{srs?.learning || 0}</div>
               </div>
               <div className="bg-white/[0.03] p-3 rounded-xl border border-white/10 text-center">
-                <div className="text-[10px] font-tech-mono text-neutral-300 uppercase">Powtórki</div>
+                <div className="text-[10px] font-tech-mono text-neutral-400 uppercase">Powtórki</div>
                 <div className="text-2xl font-bold font-sans text-neutral-200 mt-0.5">{srs?.review || 0}</div>
               </div>
               <div className="bg-white/[0.03] p-3 rounded-xl border border-white/10 text-center">
-                <div className="text-[10px] font-tech-mono text-emerald-400 uppercase">Opanowane</div>
-                <div className="text-2xl font-bold font-sans text-emerald-300 mt-0.5">{srs?.mastered || 0}</div>
+                <div className="text-[10px] font-tech-mono text-white uppercase font-bold">Opanowane</div>
+                <div className="text-2xl font-bold font-sans text-white mt-0.5">{srs?.mastered || 0}</div>
               </div>
             </div>
           </div>
@@ -114,7 +114,7 @@ export default function StatsModal({ stats, onClose, onResetProgress }) {
                       </div>
                       <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-cyan-400 rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(34,211,238,0.7)]"
+                          className="h-full bg-white rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(255,255,255,0.7)]"
                           style={{ width: `${percent}%` }}
                         />
                       </div>

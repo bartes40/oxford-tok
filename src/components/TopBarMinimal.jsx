@@ -42,7 +42,7 @@ export default function TopBarMinimal({
             className="group flex items-center gap-2 px-3.5 py-1.5 bg-black/80 hover:bg-black/95 text-white rounded-full border border-white/20 backdrop-blur-2xl shadow-[0_8px_32px_-4px_rgba(0,0,0,0.8)] active:scale-95 transition-all"
             title="Katalog słówek Oxford 3000™"
           >
-            <Compass className="w-3.5 h-3.5 text-cyan-300" />
+            <Compass className="w-3.5 h-3.5 text-white/90" />
             <span className="font-tech-mono text-xs font-bold text-white tracking-wider">
               SŁÓWKA
             </span>

@@ -71,7 +71,7 @@ export default function QuizChallengeModal({ onClose, onRewardXp }) {
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="bg-white/10 text-cyan-300 text-[10px] font-tech-mono font-bold px-2 py-0.5 rounded border border-white/10">
+            <span className="bg-white/10 text-white text-[10px] font-tech-mono font-bold px-2 py-0.5 rounded border border-white/20">
               +{score * 25} XP
             </span>
             <button
@@ -135,7 +135,7 @@ export default function QuizChallengeModal({ onClose, onRewardXp }) {
 
                   if (isAnswered) {
                     if (opt.isCorrect) {
-                      btnStyle = 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/60 font-semibold shadow-[0_0_12px_rgba(34,211,238,0.3)]';
+                      btnStyle = 'bg-white/15 text-white border border-white/60 font-semibold shadow-[0_0_16px_rgba(255,255,255,0.4)]';
                     } else if (selectedOption === i) {
                       btnStyle = 'bg-rose-500/20 text-rose-300 border border-rose-500/60';
                     } else {
@@ -151,7 +151,7 @@ export default function QuizChallengeModal({ onClose, onRewardXp }) {
                       className={`w-full p-4 rounded-xl font-sans text-sm text-left transition-all flex items-center justify-between active:scale-[0.99] backdrop-blur-md ${btnStyle}`}
                     >
                       <span className="font-medium">{opt.text}</span>
-                      {isAnswered && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-cyan-400" />}
+                      {isAnswered && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-white" />}
                       {isAnswered && !opt.isCorrect && selectedOption === i && <XCircle className="w-4 h-4 text-rose-400" />}
                     </button>
                   );

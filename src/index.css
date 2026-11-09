@@ -102,6 +102,67 @@
   animation: starGlintPulse 3.8s ease-in-out infinite;
 }
 
+/* ========================================================================== */
+/* Silver Subtle Glow Badge (Minimal High-Fashion Obsidian Glass Chip)        */
+/* Clean, sleek rounded edges with soft, delicate silver starlight glow       */
+/* ========================================================================== */
+.silver-distressed-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.12em 0.58em;
+  margin: 0 0.2em;
+  font-weight: 800;
+  font-style: normal;
+  color: #ffffff;
+  vertical-align: baseline;
+  letter-spacing: -0.01em;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 
+    0 0 10px -1px rgba(255, 255, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+/* ========================================================================== */
+/* Silver Subtle Glow Underline (Clean, Razor-Sharp with Soft Ambient Glow)   */
+/* ========================================================================== */
+.silver-distressed-underline {
+  position: relative;
+  display: inline-block;
+  font-weight: 800;
+  color: #ffffff;
+  padding-bottom: 2px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+}
+
+.silver-distressed-underline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+  border-radius: 1px;
+}
+
 /* TikTok Signature Double-Tap Flying Heart Animation */
 @keyframes tiktokHeartPopFly {
   0% {

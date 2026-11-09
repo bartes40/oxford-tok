@@ -62,12 +62,12 @@ export default function OxfordDeepDiveModal({
       return parts.map((part, i) => {
         if (part.toLowerCase().startsWith(stem.toLowerCase())) {
           return (
-            <mark
+            <span
               key={i}
-              className="bg-cyan-400/20 text-cyan-200 font-bold px-2 py-0.5 rounded-md border border-cyan-400/40 not-italic shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+              className="silver-distressed-badge"
             >
               {part}
-            </mark>
+            </span>
           );
         }
         return <span key={i}>{part}</span>;
@@ -207,7 +207,7 @@ export default function OxfordDeepDiveModal({
                         </span>
                       )}
                       {s.pattern && (
-                        <span className="text-xs font-tech-mono font-semibold text-cyan-200 bg-cyan-400/15 px-2.5 py-0.5 rounded-lg border border-cyan-400/30">
+                        <span className="text-xs font-tech-mono font-semibold text-neutral-200 bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/20">
                           {s.pattern}
                         </span>
                       )}
@@ -218,8 +218,9 @@ export default function OxfordDeepDiveModal({
                     </p>
 
                     {s.definition_pl && (
-                      <p className="text-sm font-bold text-cyan-300 font-tech-mono">
-                        → {s.definition_pl}
+                      <p className="text-sm font-bold text-white font-tech-mono flex items-center gap-1.5">
+                        <span className="text-neutral-400">→</span>
+                        <span className="silver-distressed-underline">{s.definition_pl}</span>
                       </p>
                     )}
 

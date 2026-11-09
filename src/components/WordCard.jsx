@@ -32,7 +32,7 @@ export default function WordCard({
     };
   }, [word.id]);
 
-  // Tastefully highlight target word in English example (luminous neon cyan)
+  // Tastefully highlight target word in English example (Silver/White Distressed Cyber Tape)
   const renderHighlightedExampleEn = (example, targetWord) => {
     if (!example || !targetWord) return example;
     try {
@@ -44,7 +44,7 @@ export default function WordCard({
           return (
             <span
               key={i}
-              className="inline-flex items-center px-2.5 sm:px-3 py-0.5 rounded-xl bg-cyan-400/20 text-cyan-200 font-black border border-cyan-400/40 mx-1 shadow-[0_0_16px_rgba(34,211,238,0.35)] tracking-tight not-italic"
+              className="silver-distressed-badge"
             >
               {part}
             </span>
@@ -57,7 +57,7 @@ export default function WordCard({
     }
   };
 
-  // Tastefully highlight Polish keyword equivalents inside the Polish example sentence
+  // Tastefully highlight Polish keyword equivalents (Silver Distressed Jagged Underline & White Glow)
   const renderHighlightedExamplePl = (examplePl, definitionPl) => {
     if (!examplePl || !definitionPl) return examplePl;
     try {
@@ -89,7 +89,7 @@ export default function WordCard({
           return (
             <span
               key={i}
-              className="font-black text-white underline decoration-cyan-400 decoration-2 underline-offset-[5px] inline-block pb-0.5"
+              className="silver-distressed-underline"
             >
               {part}
             </span>
@@ -286,7 +286,7 @@ export default function WordCard({
               {/* Iconic 4-Point Star Lens Flares on letters */}
               <StarGlint className="absolute -top-3 -right-3 w-5 h-5 text-white/95 animate-star-glint" />
               <StarGlint
-                className="absolute -bottom-2 -left-3 w-4 h-4 text-cyan-200/90 animate-star-glint"
+                className="absolute -bottom-2 -left-3 w-4 h-4 text-slate-200/90 animate-star-glint"
                 style={{ animationDelay: '1.4s' }}
               />
             </div>
@@ -380,7 +380,7 @@ export default function WordCard({
           <div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="font-tech-mono text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded bg-cyan-300 text-black tracking-wider uppercase shadow-[0_0_12px_rgba(103,232,249,0.5)]">
+                <span className="font-tech-mono text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded bg-white text-black tracking-wider uppercase shadow-[0_0_12px_rgba(255,255,255,0.45)]">
                   {word.cefr_level || 'B2'}
                 </span>
                 <span className="font-tech-mono text-xs text-neutral-300 font-semibold tracking-wide uppercase">
@@ -453,7 +453,7 @@ export default function WordCard({
               </h2>
               <StarGlint className="absolute -top-3 -right-3 w-5 h-5 text-white/95 animate-star-glint" />
               <StarGlint
-                className="absolute -bottom-2 -left-3 w-4 h-4 text-cyan-200/90 animate-star-glint"
+                className="absolute -bottom-2 -left-3 w-4 h-4 text-slate-200/90 animate-star-glint"
                 style={{ animationDelay: '1.4s' }}
               />
             </div>
@@ -477,7 +477,7 @@ export default function WordCard({
               <div className="mt-5 sm:mt-6 p-4 sm:p-5 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner space-y-2.5">
                 <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)]" />
                     PRZYKŁAD W KONTEKŚCIE
                   </span>
                   <span>OXFORD 3000™</span>
