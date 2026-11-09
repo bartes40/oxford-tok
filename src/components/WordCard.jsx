@@ -274,11 +274,11 @@ function WordCardComponent({
 
     const now = Date.now();
     const diff = now - lastClickTimeRef.current;
-    const RAPID_CLICK_THRESHOLD = 220; // ms threshold between clicks for double-tap
-    const RAPID_RESET_DELAY = 280;     // ms before ending rapid streak
+    const DOUBLE_TAP_THRESHOLD = 290; // ms threshold between clicks for double-tap
+    const RAPID_STREAK_DELAY = 380;   // ms before ending rapid streak
 
     // Check if this tap is part of a rapid clicking sequence (double-tap, multi-tap, infinite spam)
-    const isRapid = isRapidClickingRef.current || (diff > 0 && diff < RAPID_CLICK_THRESHOLD);
+    const isRapid = isRapidClickingRef.current || (diff > 0 && diff < DOUBLE_TAP_THRESHOLD);
 
     if (isRapid) {
       // 1. Instantly cancel any scheduled card flip! Fast clicks NEVER flip the card!
@@ -298,7 +298,7 @@ function WordCardComponent({
         isRapidClickingRef.current = false;
         lastClickTimeRef.current = 0;
         pendingFirstTapPosRef.current = null;
-      }, RAPID_RESET_DELAY);
+      }, RAPID_STREAK_DELAY);
 
       // 3. Spawn floating hearts:
       // If this was tap 2, also reward tap 1's coordinate so no clicks are missed
@@ -327,12 +327,12 @@ function WordCardComponent({
       clearTimeout(clickTimerRef.current);
     }
 
-    // Snappy card reveal (70ms debounce for natural responsiveness while preserving double-tap like)
+    // Snappy card reveal: waits for DOUBLE_TAP_THRESHOLD so double-tap or rapid clicks cancel it 100% reliably
     clickTimerRef.current = setTimeout(() => {
       clickTimerRef.current = null;
       pendingFirstTapPosRef.current = null;
       triggerFlip();
-    }, 70);
+    }, DOUBLE_TAP_THRESHOLD);
   };
 
   const displayedPhonetic =
