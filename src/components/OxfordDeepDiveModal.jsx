@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
+import { getAuthHeaders } from '../utils/auth';
 
 // Tastefully highlight target word in example sentences
 function highlightWord(sentence, targetWord) {
@@ -62,7 +63,9 @@ function OxfordDeepDiveModalComponent({
         isPlBad)
     ) {
       setLoadingDeep(true);
-      fetch(`/api/oxford/enrich/${encodeURIComponent(initialWord.id || initialWord.word)}`)
+      fetch(`/api/oxford/enrich/${encodeURIComponent(initialWord.id || initialWord.word)}`, {
+        headers: getAuthHeaders()
+      })
         .then((r) => r.json())
         .then((data) => {
           if (data.success && data.word) {
