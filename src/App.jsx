@@ -4,6 +4,13 @@ import TikTokFeed from './components/TikTokFeed';
 import AuthModal from './components/AuthModal';
 import { speakWord, getAccent, setAccent } from './utils/speech';
 import { isSoundEnabled, toggleSound, playTap } from './utils/sound';
+import {
+  getAuthToken,
+  getStoredUser,
+  getStoredProfile,
+  setStoredAuth,
+  clearStoredAuth
+} from './utils/auth';
 
 // Code-split heavy modals to drastically reduce initial JS bundle size and accelerate TTI
 const OxfordDeepDiveModal = lazy(() => import('./components/OxfordDeepDiveModal'));
@@ -15,37 +22,9 @@ export default function App() {
   const [currentFilter, setCurrentFilter] = useState('all');
 
   // Authentication & Online Turso User State
-  const [authToken, setAuthToken] = useState(() => {
-    try {
-      return localStorage.getItem('oxford_token') || '';
-    } catch (e) {
-      return '';
-    }
-  });
-
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const savedToken = localStorage.getItem('oxford_token');
-      const savedUser = localStorage.getItem('oxford_user');
-      if (savedToken && savedUser) {
-        const parsed = JSON.parse(savedUser);
-        if (parsed && !parsed.isGuest && parsed.username && parsed.username.toLowerCase() !== 'guest') {
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return null; // Not logged in
-  });
-
-  const [userProfile, setUserProfile] = useState(() => {
-    try {
-      const savedProfile = localStorage.getItem('oxford_profile');
-      return savedProfile ? JSON.parse(savedProfile) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-
+  const [authToken, setAuthToken] = useState(() => getAuthToken());
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
+  const [userProfile, setUserProfile] = useState(() => getStoredProfile());
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Modals
@@ -85,15 +64,10 @@ export default function App() {
         if (data.success && !data.isGuest && data.user) {
           setCurrentUser(data.user);
           setUserProfile(data.profile);
-          localStorage.setItem('oxford_user', JSON.stringify(data.user));
-          if (data.profile) {
-            localStorage.setItem('oxford_profile', JSON.stringify(data.profile));
-          }
+          setStoredAuth(authToken, data.user, data.profile);
         } else {
           // Token expired or invalid
-          localStorage.removeItem('oxford_token');
-          localStorage.removeItem('oxford_user');
-          localStorage.removeItem('oxford_profile');
+          clearStoredAuth();
           setAuthToken('');
           setCurrentUser(null);
           setUserProfile(null);
@@ -105,6 +79,22 @@ export default function App() {
 
     loadCurrentUser();
   }, [authToken, getAuthHeaders]);
+
+  // Synchronize across browser tabs
+  useEffect(() => {
+    function handleStorageChange(e) {
+      if (e.key === 'oxford_token' || e.key === 'oxford_user') {
+        const nextToken = getAuthToken();
+        const nextUser = getStoredUser();
+        const nextProfile = getStoredProfile();
+        setAuthToken(nextToken);
+        setCurrentUser(nextUser);
+        setUserProfile(nextProfile);
+      }
+    }
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Fetch randomized words based on filter with AbortController for race-free switching
   const fetchFeed = useCallback(async (filter) => {
@@ -211,11 +201,7 @@ export default function App() {
 
   // Handle Login / Registration success
   const handleLoginSuccess = useCallback((token, user, profile) => {
-    localStorage.setItem('oxford_token', token);
-    localStorage.setItem('oxford_user', JSON.stringify(user));
-    if (profile) {
-      localStorage.setItem('oxford_profile', JSON.stringify(profile));
-    }
+    setStoredAuth(token, user, profile);
     setAuthToken(token);
     setCurrentUser(user);
     setUserProfile(profile);
@@ -225,9 +211,7 @@ export default function App() {
 
   // Handle Logout
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('oxford_token');
-    localStorage.removeItem('oxford_user');
-    localStorage.removeItem('oxford_profile');
+    clearStoredAuth();
     setAuthToken('');
     setCurrentUser(null);
     setUserProfile(null);
