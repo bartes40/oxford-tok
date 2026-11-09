@@ -127,6 +127,13 @@ router.post('/auth/register', async (req, res) => {
       });
     }
 
+    if (cleanUser.toLowerCase() === 'guest') {
+      return res.status(400).json({
+        success: false,
+        error: 'Ta nazwa użytkownika jest zarezerwowana.'
+      });
+    }
+
     if (!cleanPass || cleanPass.length < 4) {
       return res.status(400).json({
         success: false,
@@ -134,8 +141,8 @@ router.post('/auth/register', async (req, res) => {
       });
     }
 
-    // Check if user already exists in Turso
-    const existing = await cloudGet('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    // Check if user already exists in Turso (strict case-insensitive)
+    const existing = await cloudGet('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (existing) {
       return res.status(400).json({
         success: false,
@@ -144,12 +151,22 @@ router.post('/auth/register', async (req, res) => {
     }
 
     const passwordHash = hashPassword(cleanPass);
-    await cloudRun(
-      'INSERT INTO users (username, password_hash) VALUES (?, ?)',
-      [cleanUser, passwordHash]
-    );
+    try {
+      await cloudRun(
+        'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+        [cleanUser, passwordHash]
+      );
+    } catch (insertErr) {
+      if (insertErr.message && (insertErr.message.includes('UNIQUE') || insertErr.message.includes('constraint'))) {
+        return res.status(400).json({
+          success: false,
+          error: 'Taka nazwa użytkownika jest już zajęta.'
+        });
+      }
+      throw insertErr;
+    }
 
-    const newUser = await cloudGet('SELECT id, username, created_at FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    const newUser = await cloudGet('SELECT id, username, created_at FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     const todayStr = new Date().toISOString().split('T')[0];
 
     await cloudRun(
@@ -166,7 +183,8 @@ router.post('/auth/register', async (req, res) => {
       token,
       user: {
         id: newUser.id,
-        username: newUser.username
+        username: newUser.username,
+        isGuest: false
       },
       profile: {
         ...profile,
@@ -190,7 +208,7 @@ router.post('/auth/login', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Podaj nazwę użytkownika i hasło.' });
     }
 
-    const user = await cloudGet('SELECT * FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    const user = await cloudGet('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [cleanUser]);
     if (!user) {
       return res.status(401).json({ success: false, error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
     }
@@ -208,7 +226,8 @@ router.post('/auth/login', async (req, res) => {
       token,
       user: {
         id: user.id,
-        username: user.username
+        username: user.username,
+        isGuest: false
       },
       profile: {
         ...profile,
@@ -224,16 +243,26 @@ router.post('/auth/login', async (req, res) => {
 // GET /api/auth/me - Get currently authenticated user profile
 router.get('/auth/me', async (req, res) => {
   try {
+    if (!req.user || req.user.isGuest) {
+      return res.json({
+        success: true,
+        isGuest: true,
+        user: null,
+        profile: null
+      });
+    }
+
     const userId = req.user.id;
     const profile = await ensureUserProfile(userId);
     const levelInfo = getLevelInfo(profile.xp);
 
     res.json({
       success: true,
-      isGuest: req.user.isGuest,
+      isGuest: false,
       user: {
         id: req.user.id,
-        username: req.user.username
+        username: req.user.username,
+        isGuest: false
       },
       profile: {
         ...profile,

@@ -15,16 +15,37 @@ export default function App() {
   const [currentFilter, setCurrentFilter] = useState('all');
 
   // Authentication & Online Turso User State
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem('oxford_token') || '');
-  const [currentUser, setCurrentUser] = useState(() => {
+  const [authToken, setAuthToken] = useState(() => {
     try {
-      const saved = localStorage.getItem('oxford_user');
-      return saved ? JSON.parse(saved) : { id: 1, username: 'guest', isGuest: true };
+      return localStorage.getItem('oxford_token') || '';
     } catch (e) {
-      return { id: 1, username: 'guest', isGuest: true };
+      return '';
     }
   });
-  const [userProfile, setUserProfile] = useState(null);
+
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const savedToken = localStorage.getItem('oxford_token');
+      const savedUser = localStorage.getItem('oxford_user');
+      if (savedToken && savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && !parsed.isGuest && parsed.username && parsed.username.toLowerCase() !== 'guest') {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return null; // Not logged in
+  });
+
+  const [userProfile, setUserProfile] = useState(() => {
+    try {
+      const savedProfile = localStorage.getItem('oxford_profile');
+      return savedProfile ? JSON.parse(savedProfile) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Modals
@@ -50,17 +71,32 @@ export default function App() {
   // Fetch current user and profile on mount / token change
   useEffect(() => {
     async function loadCurrentUser() {
+      if (!authToken) {
+        setCurrentUser(null);
+        setUserProfile(null);
+        return;
+      }
+
       try {
         const res = await fetch('/api/auth/me', {
           headers: getAuthHeaders()
         });
         const data = await res.json();
-        if (data.success && data.user) {
+        if (data.success && !data.isGuest && data.user) {
           setCurrentUser(data.user);
           setUserProfile(data.profile);
-          if (!data.isGuest) {
-            localStorage.setItem('oxford_user', JSON.stringify(data.user));
+          localStorage.setItem('oxford_user', JSON.stringify(data.user));
+          if (data.profile) {
+            localStorage.setItem('oxford_profile', JSON.stringify(data.profile));
           }
+        } else {
+          // Token expired or invalid
+          localStorage.removeItem('oxford_token');
+          localStorage.removeItem('oxford_user');
+          localStorage.removeItem('oxford_profile');
+          setAuthToken('');
+          setCurrentUser(null);
+          setUserProfile(null);
         }
       } catch (err) {
         console.warn('Could not verify auth status:', err);
@@ -177,6 +213,9 @@ export default function App() {
   const handleLoginSuccess = useCallback((token, user, profile) => {
     localStorage.setItem('oxford_token', token);
     localStorage.setItem('oxford_user', JSON.stringify(user));
+    if (profile) {
+      localStorage.setItem('oxford_profile', JSON.stringify(profile));
+    }
     setAuthToken(token);
     setCurrentUser(user);
     setUserProfile(profile);
@@ -188,9 +227,9 @@ export default function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('oxford_token');
     localStorage.removeItem('oxford_user');
+    localStorage.removeItem('oxford_profile');
     setAuthToken('');
-    const guest = { id: 1, username: 'guest', isGuest: true };
-    setCurrentUser(guest);
+    setCurrentUser(null);
     setUserProfile(null);
     fetchFeed(currentFilter);
   }, [currentFilter, fetchFeed]);

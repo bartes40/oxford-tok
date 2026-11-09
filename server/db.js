@@ -165,16 +165,19 @@ for (const [colName, colDef] of newColumns) {
   } catch (e) {}
 }
 
-// Initialize Turso Cloud DB client
-export const cloudDb = (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN)
+// Initialize Turso Cloud DB client (with guaranteed production fallback)
+const TURSO_URL = process.env.TURSO_DATABASE_URL || 'libsql://english-tok-bsc1.aws-eu-central-1.turso.io';
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTQyNjM3MjMsImlkIjoiMDFhMWMyNzMtNjQwMS03NWFjLWJlZWItMzA1YjAxMDMwNTg3Iiwia2lkIjoiS2NiMXpvUU5fN3ZTM2dQSUVoTWl2eEhva1hfTjJUNjMyLU9DWURvcTctMCIsInJpZCI6IjA5MDdmYjVkLWJkOTYtNGMyZS1hZmUwLTEyNzg1NmE0OTIwZiJ9.MlxKEXtH36H79ZL2FZsXM_8B_u83BxoLim8T35i89cLd2pflQs02CrB9jnGSkRy7kAlhPbGkE8mbESRn0qcyDA';
+
+export const cloudDb = (TURSO_URL && TURSO_TOKEN)
   ? createClient({
-      url: process.env.TURSO_DATABASE_URL,
-      authToken: process.env.TURSO_AUTH_TOKEN
+      url: TURSO_URL,
+      authToken: TURSO_TOKEN
     })
   : null;
 
 if (cloudDb) {
-  console.log(`[DB] ⚡ Connected to Turso Cloud DB: ${process.env.TURSO_DATABASE_URL}`);
+  console.log(`[DB] ⚡ Connected to Turso Cloud DB: ${TURSO_URL}`);
 } else {
   console.log('[DB] Running with local SQLite database.');
 }
@@ -192,7 +195,8 @@ export async function cloudAll(sql, args = []) {
       const res = await cloudDb.execute({ sql, args });
       return res.rows || [];
     } catch (err) {
-      console.error('[Turso cloudAll error, falling back to local]', err.message);
+      console.error('[Turso cloudAll error]', err.message);
+      throw err;
     }
   }
 
@@ -215,7 +219,8 @@ export async function cloudGet(sql, args = []) {
       const res = await cloudDb.execute({ sql, args });
       return res.rows && res.rows.length > 0 ? res.rows[0] : null;
     } catch (err) {
-      console.error('[Turso cloudGet error, falling back to local]', err.message);
+      console.error('[Turso cloudGet error]', err.message);
+      throw err;
     }
   }
 
@@ -243,7 +248,8 @@ export async function cloudRun(sql, args = []) {
         lastInsertRowid: res.lastInsertRowid != null ? Number(res.lastInsertRowid) : null
       };
     } catch (err) {
-      console.error('[Turso cloudRun error, falling back to local]', err.message);
+      console.error('[Turso cloudRun error]', err.message);
+      throw err;
     }
   }
 
@@ -258,7 +264,9 @@ export async function cloudRun(sql, args = []) {
       };
     }
   } catch (err) {
-    // Local sync silent ignore if table differences
+    if (!cloudDb) {
+      throw err;
+    }
   }
 
   return cloudResult;

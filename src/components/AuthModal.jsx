@@ -35,7 +35,12 @@ export default function AuthModal({
 
   if (!isOpen) return null;
 
-  const isGuest = !currentUser || currentUser.isGuest;
+  const isLoggedIn = Boolean(
+    currentUser &&
+    !currentUser.isGuest &&
+    currentUser.username &&
+    currentUser.username.toLowerCase() !== 'guest'
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -113,7 +118,7 @@ export default function AuthModal({
             </div>
             <div>
               <h2 className="font-tech-mono text-sm font-bold tracking-wider text-white">
-                {isGuest ? 'KONTO UŻYTKOWNIKA' : 'PROFIL W CHMURZE'}
+                {isLoggedIn ? 'PROFIL W CHMURZE' : 'KONTO UŻYTKOWNIKA'}
               </h2>
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400">
                 <Database className="w-3 h-3" />
@@ -134,7 +139,7 @@ export default function AuthModal({
         </div>
 
         {/* Logged In View */}
-        {!isGuest ? (
+        {isLoggedIn ? (
           <div className="pt-5 space-y-4">
             <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10">
               <div className="flex items-center justify-between mb-3">
