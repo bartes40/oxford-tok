@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import TopBarMinimal from './components/TopBarMinimal';
 import TikTokFeed from './components/TikTokFeed';
+import AuthModal from './components/AuthModal';
 import { speakWord, getAccent, setAccent } from './utils/speech';
 import { isSoundEnabled, toggleSound, playTap } from './utils/sound';
 
@@ -13,6 +14,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [currentFilter, setCurrentFilter] = useState('all');
 
+  // Authentication & Online Turso User State
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('oxford_token') || '');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('oxford_user');
+      return saved ? JSON.parse(saved) : { id: 1, username: 'guest', isGuest: true };
+    } catch (e) {
+      return { id: 1, username: 'guest', isGuest: true };
+    }
+  });
+  const [userProfile, setUserProfile] = useState(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
   // Modals
   const [deepDiveWord, setDeepDiveWord] = useState(null);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
@@ -24,6 +38,38 @@ export default function App() {
   const isFetchingMore = useRef(false);
   const feedAbortControllerRef = useRef(null);
 
+  // Helper for Authorization Headers
+  const getAuthHeaders = useCallback(() => {
+    const headers = {};
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    return headers;
+  }, [authToken]);
+
+  // Fetch current user and profile on mount / token change
+  useEffect(() => {
+    async function loadCurrentUser() {
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        if (data.success && data.user) {
+          setCurrentUser(data.user);
+          setUserProfile(data.profile);
+          if (!data.isGuest) {
+            localStorage.setItem('oxford_user', JSON.stringify(data.user));
+          }
+        }
+      } catch (err) {
+        console.warn('Could not verify auth status:', err);
+      }
+    }
+
+    loadCurrentUser();
+  }, [authToken, getAuthHeaders]);
+
   // Fetch randomized words based on filter with AbortController for race-free switching
   const fetchFeed = useCallback(async (filter) => {
     if (feedAbortControllerRef.current) {
@@ -34,7 +80,10 @@ export default function App() {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/feed?filter=${filter}&limit=30`, { signal: ac.signal });
+      const res = await fetch(`/api/feed?filter=${filter}&limit=30`, {
+        signal: ac.signal,
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (data.success && data.words) {
         setWords(data.words);
@@ -48,15 +97,16 @@ export default function App() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [getAuthHeaders]);
 
-  // Infinite scroll: load next random batch from Oxford 3000 catalog
+  // Infinite scroll: load next random batch from Oxford 3000 catalog in Turso online
   const handleLoadMore = useCallback(async () => {
     if (isFetchingMore.current) return;
     isFetchingMore.current = true;
     try {
       const res = await fetch(
-        `/api/feed?filter=${currentFilter}&limit=20`
+        `/api/feed?filter=${currentFilter}&limit=20`,
+        { headers: getAuthHeaders() }
       );
       const data = await res.json();
       if (data.success && data.words?.length > 0) {
@@ -71,7 +121,7 @@ export default function App() {
     } finally {
       isFetchingMore.current = false;
     }
-  }, [currentFilter]);
+  }, [currentFilter, getAuthHeaders]);
 
   // Update a single word in state after live Oxford API enrichment
   const handleWordUpdated = useCallback((enrichedWord) => {
@@ -90,7 +140,7 @@ export default function App() {
     };
   }, [currentFilter, fetchFeed]);
 
-  // Toggle favorite / save word (supports optional force boolean)
+  // Toggle favorite / save word in Turso online
   const handleToggleFavorite = useCallback(async (wordId, force) => {
     try {
       // Optimistic instant feedback
@@ -106,7 +156,10 @@ export default function App() {
 
       const res = await fetch('/api/toggle-favorite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ word_id: wordId, force })
       });
       const data = await res.json();
@@ -118,7 +171,29 @@ export default function App() {
     } catch (err) {
       console.error('Error toggling favorite:', err);
     }
-  }, []);
+  }, [getAuthHeaders]);
+
+  // Handle Login / Registration success
+  const handleLoginSuccess = useCallback((token, user, profile) => {
+    localStorage.setItem('oxford_token', token);
+    localStorage.setItem('oxford_user', JSON.stringify(user));
+    setAuthToken(token);
+    setCurrentUser(user);
+    setUserProfile(profile);
+    // Reload feed with the user's personal favorites and SRS data
+    fetchFeed(currentFilter);
+  }, [currentFilter, fetchFeed]);
+
+  // Handle Logout
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('oxford_token');
+    localStorage.removeItem('oxford_user');
+    setAuthToken('');
+    const guest = { id: 1, username: 'guest', isGuest: true };
+    setCurrentUser(guest);
+    setUserProfile(null);
+    fetchFeed(currentFilter);
+  }, [currentFilter, fetchFeed]);
 
   // Pronunciation
   const handleSpeak = useCallback((wordOrText, customOpts = {}) => {
@@ -158,13 +233,15 @@ export default function App() {
         <rect width="100%" height="100%" filter="url(#noise)" />
       </svg>
 
-      {/* High-Fashion Top Bar */}
+      {/* High-Fashion Top Bar with User Auth Button */}
       <TopBarMinimal
         currentFilter={currentFilter}
         onFilterChange={setCurrentFilter}
         soundOn={soundOn}
         onToggleSound={handleToggleSound}
         onOpenBrowser={handleOpenBrowser}
+        currentUser={currentUser}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       {/* Main TikTok Feed Container */}
@@ -173,7 +250,7 @@ export default function App() {
           <div className="flex flex-col items-center justify-center p-8 text-neutral-400 text-center">
             <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin mb-4" />
             <span className="font-tech-mono text-xs uppercase tracking-widest text-neutral-300">
-              SYNCHRONIZING // OXFORD LEXICON
+              SYNCHRONIZING // TURSO CLOUD LEXICON
             </span>
           </div>
         ) : (
@@ -189,6 +266,16 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* User Auth & Profile Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        currentUser={currentUser}
+        userProfile={userProfile}
+        onLoginSuccess={handleLoginSuccess}
+        onLogout={handleLogout}
+      />
 
       {/* Lazy Suspense Fallback for Modals */}
       <Suspense fallback={null}>

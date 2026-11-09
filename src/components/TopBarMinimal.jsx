@@ -6,7 +6,8 @@ import {
   X,
   Search,
   Compass,
-  Check
+  Check,
+  User
 } from 'lucide-react';
 import { playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
@@ -16,7 +17,9 @@ function TopBarMinimalComponent({
   onFilterChange,
   soundOn,
   onToggleSound,
-  onOpenBrowser
+  onOpenBrowser,
+  currentUser,
+  onOpenAuth
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -53,8 +56,33 @@ function TopBarMinimalComponent({
           </button>
         </div>
 
-        {/* Right: Sound & Filter Triggers */}
+        {/* Right: Sound, User & Filter Triggers */}
         <div className="pointer-events-auto flex items-center gap-2">
+          {/* User Auth Trigger */}
+          <button
+            onClick={() => {
+              playTap();
+              if (onOpenAuth) onOpenAuth();
+            }}
+            className={`h-9 rounded-full bg-black/75 hover:bg-black/90 text-neutral-200 hover:text-white border ${
+              currentUser && !currentUser.isGuest
+                ? 'border-blue-400/50 bg-blue-950/40 text-blue-300 px-3'
+                : 'border-white/20 w-9 justify-center'
+            } backdrop-blur-2xl shadow-[0_8px_32px_-4px_rgba(0,0,0,0.8)] flex items-center gap-1.5 transition-all active:scale-95`}
+            title={
+              currentUser && !currentUser.isGuest
+                ? `Zalogowano jako ${currentUser.username}`
+                : 'Zaloguj się / Załóż konto'
+            }
+          >
+            <User className="w-4 h-4 text-white/90" />
+            {currentUser && !currentUser.isGuest && (
+              <span className="font-tech-mono text-[11px] font-bold tracking-tight max-w-[80px] truncate text-white">
+                {currentUser.username}
+              </span>
+            )}
+          </button>
+
           {/* Sound Toggle */}
           <button
             onClick={() => {

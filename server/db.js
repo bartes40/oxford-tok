@@ -1,7 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createClient } from '@libsql/client';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,8 +17,6 @@ const originalDataDir = path.dirname(originalDbPath);
 
 let effectiveDbPath = originalDbPath;
 
-// In Vercel or AWS Lambda, root directory is read-only.
-// We safely mirror oxford.db to /tmp on cold start so that SQLite reads & writes work seamlessly.
 if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
   const tmpDir = '/tmp';
   const tmpDbPath = path.join(tmpDir, 'oxford.db');
@@ -36,9 +38,9 @@ if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
   }
 }
 
-const db = new DatabaseSync(effectiveDbPath);
+// Local SQLite instance
+export const db = new DatabaseSync(effectiveDbPath);
 
-// Enable WAL mode & busy timeout for high performance concurrency, plus memory optimizations
 try {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA busy_timeout = 5000;');
@@ -53,7 +55,18 @@ try {
   } catch (e2) {}
 }
 
-// Initialize schema
+// Safe migrations for local SQLite tables
+try {
+  db.exec('ALTER TABLE user_profile ADD COLUMN user_id INTEGER DEFAULT 1');
+} catch (e) {}
+try {
+  db.exec('ALTER TABLE user_progress ADD COLUMN user_id INTEGER DEFAULT 1');
+} catch (e) {}
+try {
+  db.exec('ALTER TABLE review_logs ADD COLUMN user_id INTEGER DEFAULT 1');
+} catch (e) {}
+
+// Local schema initialization & migrations
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS words (
@@ -77,12 +90,59 @@ try {
 
     CREATE INDEX IF NOT EXISTS idx_words_cefr ON words(cefr_level);
     CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE COLLATE NOCASE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_profile (
+      user_id INTEGER PRIMARY KEY,
+      xp INTEGER DEFAULT 0,
+      level INTEGER DEFAULT 1,
+      streak_days INTEGER DEFAULT 1,
+      last_active_date TEXT,
+      words_studied_today INTEGER DEFAULT 0,
+      daily_goal INTEGER DEFAULT 20
+    );
+
+    CREATE TABLE IF NOT EXISTS user_progress (
+      user_id INTEGER NOT NULL DEFAULT 1,
+      word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,
+      state TEXT DEFAULT 'new',
+      repetitions INTEGER DEFAULT 0,
+      interval_days REAL DEFAULT 0,
+      ease_factor REAL DEFAULT 2.5,
+      next_review INTEGER DEFAULT 0,
+      last_review INTEGER DEFAULT 0,
+      last_rating INTEGER DEFAULT 0,
+      total_reviews INTEGER DEFAULT 0,
+      streak_count INTEGER DEFAULT 0,
+      is_favorite INTEGER DEFAULT 0,
+      PRIMARY KEY (user_id, word_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_progress_user_next ON user_progress(user_id, next_review);
+    CREATE INDEX IF NOT EXISTS idx_progress_user_state ON user_progress(user_id, state);
+    CREATE INDEX IF NOT EXISTS idx_progress_user_fav ON user_progress(user_id, is_favorite);
+
+    CREATE TABLE IF NOT EXISTS review_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER DEFAULT 1,
+      word_id INTEGER,
+      rating INTEGER,
+      ease_factor REAL,
+      interval_days REAL,
+      timestamp INTEGER
+    );
   `);
 } catch (err) {
-  console.warn('[DB] Schema init warning:', err.message);
+  // Silent fallback
 }
 
-// Safe multidimensional schema migrations for Oxford 3000 Autonomous Engine
+// Add columns to words if missing
 const newColumns = [
   ['phonetic_us', 'TEXT DEFAULT ""'],
   ['audio_uk', 'TEXT DEFAULT ""'],
@@ -102,72 +162,106 @@ const newColumns = [
 for (const [colName, colDef] of newColumns) {
   try {
     db.exec(`ALTER TABLE words ADD COLUMN ${colName} ${colDef}`);
-  } catch (e) {
-    // Column already exists
+  } catch (e) {}
+}
+
+// Initialize Turso Cloud DB client
+export const cloudDb = (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN)
+  ? createClient({
+      url: process.env.TURSO_DATABASE_URL,
+      authToken: process.env.TURSO_AUTH_TOKEN
+    })
+  : null;
+
+if (cloudDb) {
+  console.log(`[DB] ⚡ Connected to Turso Cloud DB: ${process.env.TURSO_DATABASE_URL}`);
+} else {
+  console.log('[DB] Running with local SQLite database.');
+}
+
+export function isCloudActive() {
+  return Boolean(cloudDb);
+}
+
+/**
+ * Execute query on Turso (or fallback to local SQLite) and return array of objects
+ */
+export async function cloudAll(sql, args = []) {
+  if (cloudDb) {
+    try {
+      const res = await cloudDb.execute({ sql, args });
+      return res.rows || [];
+    } catch (err) {
+      console.error('[Turso cloudAll error, falling back to local]', err.message);
+    }
+  }
+
+  // Fallback to local
+  try {
+    const stmt = db.prepare(sql);
+    return stmt.all(...args);
+  } catch (err) {
+    console.error('[Local SQLite cloudAll error]', err.message);
+    return [];
   }
 }
 
-try {
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_words_enriched ON words(enriched_at);
+/**
+ * Execute query on Turso (or fallback to local SQLite) and return single object or null
+ */
+export async function cloudGet(sql, args = []) {
+  if (cloudDb) {
+    try {
+      const res = await cloudDb.execute({ sql, args });
+      return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+    } catch (err) {
+      console.error('[Turso cloudGet error, falling back to local]', err.message);
+    }
+  }
 
-    CREATE TABLE IF NOT EXISTS user_progress (
-      word_id INTEGER PRIMARY KEY REFERENCES words(id) ON DELETE CASCADE,
-      state TEXT DEFAULT 'new',
-      repetitions INTEGER DEFAULT 0,
-      interval_days REAL DEFAULT 0,
-      ease_factor REAL DEFAULT 2.5,
-      next_review INTEGER DEFAULT 0,
-      last_review INTEGER DEFAULT 0,
-      last_rating INTEGER DEFAULT 0,
-      total_reviews INTEGER DEFAULT 0,
-      streak_count INTEGER DEFAULT 0,
-      is_favorite INTEGER DEFAULT 0
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_progress_next_review ON user_progress(next_review);
-    CREATE INDEX IF NOT EXISTS idx_progress_state ON user_progress(state);
-    CREATE INDEX IF NOT EXISTS idx_progress_favorite ON user_progress(is_favorite);
-    CREATE INDEX IF NOT EXISTS idx_words_pos ON words(part_of_speech);
-    CREATE INDEX IF NOT EXISTS idx_words_cefr_enriched ON words(cefr_level, enriched_at);
-
-    CREATE TABLE IF NOT EXISTS user_profile (
-      id INTEGER PRIMARY KEY,
-      xp INTEGER DEFAULT 0,
-      level INTEGER DEFAULT 1,
-      streak_days INTEGER DEFAULT 1,
-      last_active_date TEXT,
-      words_studied_today INTEGER DEFAULT 0,
-      daily_goal INTEGER DEFAULT 20
-    );
-
-    CREATE TABLE IF NOT EXISTS review_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      word_id INTEGER,
-      rating INTEGER,
-      ease_factor REAL,
-      interval_days REAL,
-      timestamp INTEGER
-    );
-  `);
-} catch (err) {
-  console.warn('[DB] Table creation warning:', err.message);
+  // Fallback to local
+  try {
+    const stmt = db.prepare(sql);
+    return stmt.get(...args) || null;
+  } catch (err) {
+    console.error('[Local SQLite cloudGet error]', err.message);
+    return null;
+  }
 }
 
-// Initialize default user profile if not present
-try {
-  const profileStmt = db.prepare('SELECT id FROM user_profile WHERE id = 1');
-  const existingProfile = profileStmt.get();
-  if (!existingProfile) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const initProfile = db.prepare(`
-      INSERT INTO user_profile (id, xp, level, streak_days, last_active_date, words_studied_today, daily_goal)
-      VALUES (1, 120, 1, 3, ?, 5, 20)
-    `);
-    initProfile.run(todayStr);
+/**
+ * Execute INSERT/UPDATE/DELETE on Turso and optionally local SQLite
+ */
+export async function cloudRun(sql, args = []) {
+  let cloudResult = { rowsAffected: 0, lastInsertRowid: null };
+
+  if (cloudDb) {
+    try {
+      const res = await cloudDb.execute({ sql, args });
+      cloudResult = {
+        rowsAffected: res.rowsAffected,
+        lastInsertRowid: res.lastInsertRowid != null ? Number(res.lastInsertRowid) : null
+      };
+    } catch (err) {
+      console.error('[Turso cloudRun error, falling back to local]', err.message);
+    }
   }
-} catch (err) {
-  console.warn('[DB] User profile init warning:', err.message);
+
+  // Also sync to local SQLite so offline backup stays consistent
+  try {
+    const stmt = db.prepare(sql);
+    const localRes = stmt.run(...args);
+    if (!cloudDb) {
+      return {
+        rowsAffected: localRes.changes,
+        lastInsertRowid: localRes.lastInsertRowid
+      };
+    }
+  } catch (err) {
+    // Local sync silent ignore if table differences
+  }
+
+  return cloudResult;
 }
 
 export default db;

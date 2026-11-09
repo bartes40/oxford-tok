@@ -207,18 +207,18 @@ function OxfordDeepDiveModalComponent({
                         </span>
                       )}
                       {s.pattern && (
-                        <span className="text-xs font-tech-mono font-semibold text-neutral-200 bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/20">
+                        <span className="max-w-full break-words [overflow-wrap:anywhere] text-xs font-tech-mono font-semibold text-neutral-200 bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/20">
                           {s.pattern}
                         </span>
                       )}
                     </div>
 
-                    <p className="text-[15px] sm:text-base font-semibold text-neutral-100 leading-relaxed">
+                    <p className="text-[15px] sm:text-base font-semibold text-neutral-100 leading-relaxed break-words [overflow-wrap:anywhere]">
                       {s.definition}
                     </p>
 
                     {s.definition_pl && (
-                      <p className="text-sm font-bold text-white font-tech-mono flex items-center gap-1.5">
+                      <p className="text-sm font-bold text-white font-tech-mono flex items-center gap-1.5 flex-wrap break-words [overflow-wrap:anywhere]">
                         <span className="text-neutral-400">→</span>
                         <span className="silver-distressed-underline">{s.definition_pl}</span>
                       </p>
@@ -261,7 +261,7 @@ function OxfordDeepDiveModalComponent({
                 {word.collocations.map((col, idx) => (
                   <span
                     key={idx}
-                    className="px-3 py-1 bg-white/[0.05] border border-white/10 text-neutral-300 text-xs sm:text-sm font-tech-mono rounded-lg"
+                    className="max-w-full break-words [overflow-wrap:anywhere] px-3 py-1 bg-white/[0.05] border border-white/10 text-neutral-300 text-xs sm:text-sm font-tech-mono rounded-lg leading-relaxed text-left"
                   >
                     {highlightWord(col, word.word)}
                   </span>
@@ -280,7 +280,7 @@ function OxfordDeepDiveModalComponent({
                 {verbForms.map((vf, idx) => (
                   <div
                     key={idx}
-                    className="px-3.5 py-2 bg-white/[0.03] rounded-xl border border-white/10 text-xs sm:text-sm font-tech-mono text-neutral-300"
+                    className="max-w-full break-words [overflow-wrap:anywhere] px-3.5 py-2 bg-white/[0.03] rounded-xl border border-white/10 text-xs sm:text-sm font-tech-mono text-neutral-300 leading-relaxed"
                   >
                     {vf}
                   </div>
@@ -301,7 +301,7 @@ function OxfordDeepDiveModalComponent({
                     {word.synonyms.map((syn, i) => (
                       <span
                         key={i}
-                        className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-xs font-tech-mono text-neutral-200"
+                        className="max-w-full break-words [overflow-wrap:anywhere] px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-xs font-tech-mono text-neutral-200 leading-relaxed text-left"
                       >
                         {syn}
                       </span>
@@ -318,7 +318,7 @@ function OxfordDeepDiveModalComponent({
                     {word.antonyms.map((ant, i) => (
                       <span
                         key={i}
-                        className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-xs font-tech-mono text-neutral-200"
+                        className="max-w-full break-words [overflow-wrap:anywhere] px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-xs font-tech-mono text-neutral-200 leading-relaxed text-left"
                       >
                         {ant}
                       </span>
@@ -338,10 +338,10 @@ function OxfordDeepDiveModalComponent({
               <div className="space-y-2">
                 {idioms.map((idm, idx) => (
                   <div key={idx} className="p-4 rounded-2xl bg-white/[0.03] border border-white/10">
-                    <div className="font-sans font-bold text-sm text-white">
+                    <div className="font-sans font-bold text-sm text-white break-words [overflow-wrap:anywhere]">
                       {idm.phrase}
                     </div>
-                    <div className="text-sm text-neutral-400 mt-1">{idm.definition}</div>
+                    <div className="text-sm text-neutral-400 mt-1 break-words [overflow-wrap:anywhere]">{idm.definition}</div>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import db from './db.js';
+import db, { cloudAll, cloudGet, cloudRun, isCloudActive } from './db.js';
 import { calculateNextReview, formatInterval, getLevelInfo } from './srs.js';
 import {
   enrichWordByIdOrText,
@@ -7,8 +7,17 @@ import {
   getOxfordEngineStatus,
   formatWordRow
 } from './oxfordEngine.js';
+import {
+  hashPassword,
+  verifyPassword,
+  createToken,
+  authMiddleware
+} from './auth.js';
 
 const router = Router();
+
+// Apply auth middleware to all /api routes
+router.use(authMiddleware);
 
 // Fast in-memory LRU cache for enriched dictionary entries (sub-millisecond lookups)
 const enrichedCache = new Map();
@@ -29,9 +38,9 @@ function setCachedEnriched(key, value) {
 // Helper to check and maintain daily streaks
 function updateDailyStreak(profile) {
   const todayStr = new Date().toISOString().split('T')[0];
-  const lastActive = profile.last_active_date;
-  let newStreak = profile.streak_days;
-  let newStudiedToday = profile.words_studied_today;
+  const lastActive = profile?.last_active_date;
+  let newStreak = profile?.streak_days || 1;
+  let newStudiedToday = profile?.words_studied_today || 0;
 
   if (lastActive !== todayStr) {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -70,13 +79,189 @@ function attachSrsPreview(row, now = Date.now()) {
   };
 }
 
-// GET /api/feed - TikTok smart dopamine feed with autonomous Oxford 3000 enrichment
+// Helper to get or initialize a user profile from Turso
+async function ensureUserProfile(userId) {
+  let profile = await cloudGet('SELECT * FROM user_profile WHERE user_id = ?', [userId]);
+  if (!profile) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    await cloudRun(
+      `INSERT OR REPLACE INTO user_profile (user_id, xp, level, streak_days, last_active_date, words_studied_today, daily_goal)
+       VALUES (?, 0, 1, 1, ?, 0, 20)`,
+      [userId, todayStr]
+    );
+    profile = await cloudGet('SELECT * FROM user_profile WHERE user_id = ?', [userId]);
+  }
+  return profile || {
+    user_id: userId,
+    xp: 0,
+    level: 1,
+    streak_days: 1,
+    last_active_date: new Date().toISOString().split('T')[0],
+    words_studied_today: 0,
+    daily_goal: 20
+  };
+}
+
+// =========================================================================
+// AUTHENTICATION ROUTES (Online Turso Cloud DB)
+// =========================================================================
+
+// POST /api/auth/register - Create a new user account in Turso online
+router.post('/auth/register', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const cleanUser = String(username || '').trim();
+    const cleanPass = String(password || '');
+
+    if (!cleanUser || cleanUser.length < 3 || cleanUser.length > 25) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nazwa użytkownika musi mieć od 3 do 25 znaków.'
+      });
+    }
+
+    if (!/^[a-zA-Z0-9_\-]+$/.test(cleanUser)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nazwa użytkownika może zawierać tylko litery, cyfry, myślnik i podkreślnik.'
+      });
+    }
+
+    if (!cleanPass || cleanPass.length < 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Hasło musi mieć co najmniej 4 znaki.'
+      });
+    }
+
+    // Check if user already exists in Turso
+    const existing = await cloudGet('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        error: 'Taka nazwa użytkownika jest już zajęta.'
+      });
+    }
+
+    const passwordHash = hashPassword(cleanPass);
+    await cloudRun(
+      'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+      [cleanUser, passwordHash]
+    );
+
+    const newUser = await cloudGet('SELECT id, username, created_at FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    await cloudRun(
+      `INSERT INTO user_profile (user_id, xp, level, streak_days, last_active_date, words_studied_today, daily_goal)
+       VALUES (?, 50, 1, 1, ?, 0, 20)`,
+      [newUser.id, todayStr]
+    );
+
+    const profile = await ensureUserProfile(newUser.id);
+    const token = createToken({ userId: newUser.id, username: newUser.username });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: newUser.id,
+        username: newUser.username
+      },
+      profile: {
+        ...profile,
+        ...getLevelInfo(profile.xp)
+      }
+    });
+  } catch (error) {
+    console.error('Error in auth register:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/auth/login - Log into existing account from Turso online
+router.post('/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const cleanUser = String(username || '').trim();
+    const cleanPass = String(password || '');
+
+    if (!cleanUser || !cleanPass) {
+      return res.status(400).json({ success: false, error: 'Podaj nazwę użytkownika i hasło.' });
+    }
+
+    const user = await cloudGet('SELECT * FROM users WHERE username = ? COLLATE NOCASE', [cleanUser]);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+    }
+
+    const isValid = verifyPassword(cleanPass, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+    }
+
+    const profile = await ensureUserProfile(user.id);
+    const token = createToken({ userId: user.id, username: user.username });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username
+      },
+      profile: {
+        ...profile,
+        ...getLevelInfo(profile.xp)
+      }
+    });
+  } catch (error) {
+    console.error('Error in auth login:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/auth/me - Get currently authenticated user profile
+router.get('/auth/me', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profile = await ensureUserProfile(userId);
+    const levelInfo = getLevelInfo(profile.xp);
+
+    res.json({
+      success: true,
+      isGuest: req.user.isGuest,
+      user: {
+        id: req.user.id,
+        username: req.user.username
+      },
+      profile: {
+        ...profile,
+        ...levelInfo
+      }
+    });
+  } catch (error) {
+    console.error('Error in auth me:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/auth/logout - Logout confirmation
+router.post('/auth/logout', (req, res) => {
+  res.json({ success: true, message: 'Wylogowano pomyślnie' });
+});
+
+// =========================================================================
+// FEED & LEARNING ROUTES
+// =========================================================================
+
+// GET /api/feed - TikTok smart dopamine feed connected to Turso online
 router.get('/feed', async (req, res) => {
   try {
-    const { filter = 'all', limit = 30, offset = 0 } = req.query;
+    const { filter = 'all', limit = 30 } = req.query;
     const now = Date.now();
     const numLimit = Math.min(60, Math.max(5, Number(limit) || 30));
-    const numOffset = Math.max(0, Number(offset) || 0);
+    const userId = req.user.id;
 
     let query = `
       SELECT 
@@ -91,10 +276,10 @@ router.get('/feed', async (req, res) => {
         COALESCE(p.streak_count, 0) as streak_count,
         COALESCE(p.is_favorite, 0) as is_favorite
       FROM words w
-      LEFT JOIN user_progress p ON w.id = p.word_id
+      LEFT JOIN user_progress p ON (w.id = p.word_id AND p.user_id = ?)
     `;
 
-    const params = [];
+    const params = [userId];
 
     const isEnrichedFilter = `
       (w.enriched_at > 1 
@@ -123,11 +308,9 @@ router.get('/feed', async (req, res) => {
       query += ` WHERE p.state = 'mastered' ORDER BY CASE WHEN ${isEnrichedFilter} THEN 0 ELSE 1 END, RANDOM() LIMIT ?`;
       params.push(numLimit);
     } else if (filter === 'explore') {
-      // Pure random exploration across all Oxford words, prioritizing real Oxford sentences
       query += ` ORDER BY CASE WHEN ${isEnrichedFilter} THEN 0 ELSE 1 END, RANDOM() LIMIT ?`;
       params.push(numLimit);
     } else {
-      // Randomized TikTok Feed: prioritizes fully enriched cards with authentic Oxford sentences & Polish translations
       query += `
         ORDER BY 
           CASE WHEN ${isEnrichedFilter} THEN 0 ELSE 1 END ASC,
@@ -137,65 +320,25 @@ router.get('/feed', async (req, res) => {
       params.push(numLimit);
     }
 
-    const stmt = db.prepare(query);
-    let rows = stmt.all(...params);
+    let rows = await cloudAll(query, params);
 
-    // Autonomously enrich un-enriched cards synchronously so the user never sees a stub card
-    const unEnriched = rows.filter(
-      r =>
-        !r.enriched_at ||
-        r.enriched_at <= 1 ||
-        !r.definition_pl ||
-        r.definition_pl.toLowerCase() === String(r.word).toLowerCase() ||
-        r.definition_pl.startsWith('Ładowanie') ||
-        !r.example_en ||
-        r.example_en.startsWith('This is an essential Oxford 3000') ||
-        !r.example_pl ||
-        r.example_pl.trim() === ''
-    );
-
-    if (unEnriched.length > 0) {
-      const immediateBatch = unEnriched.slice(0, 3);
-      await Promise.allSettled(immediateBatch.map(r => enrichWordByIdOrText(r.id)));
-
-      // Refresh rows from DB after immediate enrichment
-      const ids = rows.map(r => r.id);
-      if (ids.length > 0) {
-        const placeholders = ids.map(() => '?').join(',');
-        const refreshed = db
-          .prepare(`
-            SELECT 
-              w.*,
-              COALESCE(p.state, 'new') as state,
-              COALESCE(p.repetitions, 0) as repetitions,
-              COALESCE(p.interval_days, 0) as interval_days,
-              COALESCE(p.ease_factor, 2.5) as ease_factor,
-              COALESCE(p.next_review, 0) as next_review,
-              COALESCE(p.last_review, 0) as last_review,
-              COALESCE(p.last_rating, 0) as last_rating,
-              COALESCE(p.streak_count, 0) as streak_count,
-              COALESCE(p.is_favorite, 0) as is_favorite
-            FROM words w
-            LEFT JOIN user_progress p ON w.id = p.word_id
-            WHERE w.id IN (${placeholders})
-          `)
-          .all(...ids);
-
-        const byId = new Map(refreshed.map(r => [r.id, r]));
-        rows = ids.map(id => byId.get(id)).filter(Boolean);
-      }
-
-      // Queue remaining un-enriched in background
-      const backgroundBatch = unEnriched.slice(3, 12);
-      if (backgroundBatch.length > 0) {
-        setImmediate(async () => {
-          for (const item of backgroundBatch) {
-            try {
-              await enrichWordByIdOrText(item.id);
-            } catch (e) {}
-          }
-        });
-      }
+    // If initial query gave empty list (e.g. no favorites/due), fallback safely
+    if (rows.length === 0 && (filter === 'due' || filter === 'favorites' || filter === 'mastered')) {
+      const fallbackRows = await cloudAll(
+        `SELECT w.*,
+                COALESCE(p.state, 'new') as state,
+                COALESCE(p.repetitions, 0) as repetitions,
+                COALESCE(p.interval_days, 0) as interval_days,
+                COALESCE(p.ease_factor, 2.5) as ease_factor,
+                COALESCE(p.next_review, 0) as next_review,
+                COALESCE(p.streak_count, 0) as streak_count,
+                COALESCE(p.is_favorite, 0) as is_favorite
+         FROM words w
+         LEFT JOIN user_progress p ON (w.id = p.word_id AND p.user_id = ?)
+         ORDER BY RANDOM() LIMIT ?`,
+        [userId, numLimit]
+      );
+      rows = fallbackRows;
     }
 
     const words = rows.map(row => attachSrsPreview(row, now));
@@ -205,7 +348,8 @@ router.get('/feed', async (req, res) => {
       success: true,
       count: words.length,
       words,
-      engineStatus
+      engineStatus,
+      cloudConnected: isCloudActive()
     });
   } catch (error) {
     console.error('Error fetching feed:', error);
@@ -213,10 +357,11 @@ router.get('/feed', async (req, res) => {
   }
 });
 
-// GET /api/oxford/enrich/:wordOrId - On-demand autonomous multidimensional Oxford API enrichment
+// GET /api/oxford/enrich/:wordOrId - On-demand Oxford API enrichment
 router.get('/oxford/enrich/:wordOrId', async (req, res) => {
   try {
     const { wordOrId } = req.params;
+    const userId = req.user.id;
     let enriched = getCachedEnriched(wordOrId);
 
     if (!enriched) {
@@ -236,10 +381,8 @@ router.get('/oxford/enrich/:wordOrId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Word not found in Oxford API' });
     }
 
-    // Attach user_progress
-    const prog = db
-      .prepare('SELECT * FROM user_progress WHERE word_id = ?')
-      .get(enriched.id) || {
+    // Attach user_progress for current user
+    const prog = (await cloudGet('SELECT * FROM user_progress WHERE user_id = ? AND word_id = ?', [userId, enriched.id])) || {
       state: 'new',
       repetitions: 0,
       interval_days: 0,
@@ -258,7 +401,7 @@ router.get('/oxford/enrich/:wordOrId', async (req, res) => {
   }
 });
 
-// GET /api/oxford/status - Live status of the Oxford 3000 autonomous engine
+// GET /api/oxford/status - Status of Oxford autonomous engine
 router.get('/oxford/status', (req, res) => {
   try {
     res.json({
@@ -271,17 +414,24 @@ router.get('/oxford/status', (req, res) => {
 });
 
 // GET /api/db/status - Database architecture and connectivity health check
-router.get('/db/status', (req, res) => {
+router.get('/db/status', async (req, res) => {
   try {
-    const totalWords = db.prepare('SELECT COUNT(*) as c FROM words').get()?.c || 0;
-    const enrichedWords = db.prepare('SELECT COUNT(*) as c FROM words WHERE enriched_at > 0').get()?.c || 0;
-    const hasTurso = Boolean(process.env.TURSO_DATABASE_URL);
+    const countRow = await cloudGet('SELECT COUNT(*) as c FROM words');
+    const totalWords = countRow?.c || 0;
+    const enrichedRow = await cloudGet('SELECT COUNT(*) as c FROM words WHERE enriched_at > 0');
+    const enrichedWords = enrichedRow?.c || 0;
+    const userCountRow = await cloudGet('SELECT COUNT(*) as c FROM users');
+    const totalUsers = userCountRow?.c || 0;
+
     res.json({
       success: true,
-      mode: hasTurso ? 'cloud-turso' : (process.env.VERCEL ? 'vercel-embedded-sqlite' : 'local-sqlite'),
+      mode: isCloudActive() ? 'cloud-turso' : (process.env.VERCEL ? 'vercel-embedded-sqlite' : 'local-sqlite'),
       totalWords,
       enrichedWords,
-      cloudConfigured: hasTurso,
+      totalUsers,
+      cloudConfigured: isCloudActive(),
+      tursoUrl: process.env.TURSO_DATABASE_URL ? 'Connected' : 'Not configured',
+      currentUser: req.user,
       platform: process.env.VERCEL ? 'Vercel Serverless' : 'Node Server',
       timestamp: new Date().toISOString()
     });
@@ -290,19 +440,25 @@ router.get('/db/status', (req, res) => {
   }
 });
 
-// POST /api/review - Process SM-2 Spaced Repetition card rating
-router.post('/review', (req, res) => {
+// POST /api/review - Process SM-2 Spaced Repetition card rating in Turso online
+router.post('/review', async (req, res) => {
   try {
-    const { word_id, rating } = req.body;
+    const { word_id, rating } = req.body || {};
+    const userId = req.user.id;
+
     if (!word_id || !rating || rating < 1 || rating > 4) {
       return res.status(400).json({ success: false, error: 'Valid word_id and rating (1-4) required' });
     }
 
-    const progStmt = db.prepare('SELECT * FROM user_progress WHERE word_id = ?');
-    let currentProg = progStmt.get(word_id);
+    let currentProg = await cloudGet(
+      'SELECT * FROM user_progress WHERE user_id = ? AND word_id = ?',
+      [userId, word_id]
+    );
+
     if (!currentProg) {
       currentProg = {
         word_id,
+        user_id: userId,
         state: 'new',
         repetitions: 0,
         interval_days: 0,
@@ -314,12 +470,13 @@ router.post('/review', (req, res) => {
 
     const calculation = calculateNextReview(currentProg, rating);
 
-    const updateProg = db.prepare(`
+    // Save to user_progress in Turso online
+    await cloudRun(`
       INSERT INTO user_progress (
-        word_id, state, repetitions, interval_days, ease_factor,
+        user_id, word_id, state, repetitions, interval_days, ease_factor,
         next_review, last_review, last_rating, total_reviews, streak_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(word_id) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, word_id) DO UPDATE SET
         state = excluded.state,
         repetitions = excluded.repetitions,
         interval_days = excluded.interval_days,
@@ -329,9 +486,8 @@ router.post('/review', (req, res) => {
         last_rating = excluded.last_rating,
         total_reviews = excluded.total_reviews,
         streak_count = excluded.streak_count
-    `);
-
-    updateProg.run(
+    `, [
+      userId,
       word_id,
       calculation.state,
       calculation.repetitions,
@@ -342,28 +498,27 @@ router.post('/review', (req, res) => {
       calculation.last_rating,
       calculation.total_reviews,
       calculation.streak_count
-    );
+    ]);
 
-    const logStmt = db.prepare(`
-      INSERT INTO review_logs (word_id, rating, ease_factor, interval_days, timestamp)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    logStmt.run(word_id, rating, calculation.ease_factor, calculation.interval_days, calculation.last_review);
+    // Save review log in Turso online
+    await cloudRun(`
+      INSERT INTO review_logs (user_id, word_id, rating, ease_factor, interval_days, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [userId, word_id, rating, calculation.ease_factor, calculation.interval_days, calculation.last_review]);
 
-    const profStmt = db.prepare('SELECT * FROM user_profile WHERE id = 1');
-    const profile = profStmt.get();
+    // Update user profile in Turso online
+    const profile = await ensureUserProfile(userId);
     const { todayStr, newStreak, newStudiedToday } = updateDailyStreak(profile);
 
-    const updatedXp = profile.xp + calculation.xpGain;
+    const updatedXp = (profile.xp || 0) + calculation.xpGain;
     const updatedStudied = newStudiedToday + 1;
     const levelInfo = getLevelInfo(updatedXp);
 
-    const updateProfile = db.prepare(`
+    await cloudRun(`
       UPDATE user_profile
       SET xp = ?, level = ?, streak_days = ?, last_active_date = ?, words_studied_today = ?
-      WHERE id = 1
-    `);
-    updateProfile.run(updatedXp, levelInfo.level, newStreak, todayStr, updatedStudied);
+      WHERE user_id = ?
+    `, [updatedXp, levelInfo.level, newStreak, todayStr, updatedStudied, userId]);
 
     res.json({
       success: true,
@@ -374,7 +529,7 @@ router.post('/review', (req, res) => {
         level: levelInfo.level,
         streak_days: newStreak,
         words_studied_today: updatedStudied,
-        daily_goal: profile.daily_goal
+        daily_goal: profile.daily_goal || 20
       },
       levelInfo
     });
@@ -384,23 +539,27 @@ router.post('/review', (req, res) => {
   }
 });
 
-// POST /api/toggle-favorite - Star/bookmark a word (supports optional force boolean)
-router.post('/toggle-favorite', (req, res) => {
+// POST /api/toggle-favorite - Star/bookmark a word in Turso online
+router.post('/toggle-favorite', async (req, res) => {
   try {
-    const { word_id, force } = req.body;
+    const { word_id, force } = req.body || {};
+    const userId = req.user.id;
+
     if (!word_id) return res.status(400).json({ success: false, error: 'word_id required' });
 
-    const getProg = db.prepare('SELECT is_favorite FROM user_progress WHERE word_id = ?');
-    const row = getProg.get(word_id);
+    const row = await cloudGet(
+      'SELECT is_favorite FROM user_progress WHERE user_id = ? AND word_id = ?',
+      [userId, word_id]
+    );
+
     const newFavorite = typeof force === 'boolean'
       ? (force ? 1 : 0)
       : (row && row.is_favorite ? 0 : 1);
 
-    const setFav = db.prepare(`
-      INSERT INTO user_progress (word_id, is_favorite) VALUES (?, ?)
-      ON CONFLICT(word_id) DO UPDATE SET is_favorite = excluded.is_favorite
-    `);
-    setFav.run(word_id, newFavorite);
+    await cloudRun(`
+      INSERT INTO user_progress (user_id, word_id, is_favorite) VALUES (?, ?, ?)
+      ON CONFLICT(user_id, word_id) DO UPDATE SET is_favorite = excluded.is_favorite
+    `, [userId, word_id, newFavorite]);
 
     res.json({ success: true, is_favorite: newFavorite });
   } catch (error) {
@@ -409,14 +568,15 @@ router.post('/toggle-favorite', (req, res) => {
   }
 });
 
-// GET /api/stats - Global progress statistics & profile
-router.get('/stats', (req, res) => {
+// GET /api/stats - Global progress statistics & profile from Turso online
+router.get('/stats', async (req, res) => {
   try {
     const now = Date.now();
-    const profile = db.prepare('SELECT * FROM user_profile WHERE id = 1').get();
+    const userId = req.user.id;
+    const profile = await ensureUserProfile(userId);
     const levelInfo = getLevelInfo(profile.xp);
 
-    const srsCounts = db.prepare(`
+    const srsCounts = await cloudGet(`
       SELECT 
         COUNT(CASE WHEN p.state = 'new' OR p.state IS NULL THEN 1 END) as new_words,
         COUNT(CASE WHEN p.state = 'learning' THEN 1 END) as learning,
@@ -426,20 +586,20 @@ router.get('/stats', (req, res) => {
         COUNT(CASE WHEN p.next_review > 0 AND p.next_review <= ? THEN 1 END) as due_reviews,
         COUNT(*) as total_words
       FROM words w
-      LEFT JOIN user_progress p ON w.id = p.word_id
-    `).get(now);
+      LEFT JOIN user_progress p ON (w.id = p.word_id AND p.user_id = ?)
+    `, [now, userId]);
 
-    const cefrCounts = db.prepare(`
+    const cefrCounts = await cloudAll(`
       SELECT 
         w.cefr_level,
         COUNT(*) as total,
         COUNT(CASE WHEN p.state = 'mastered' THEN 1 END) as mastered,
         COUNT(CASE WHEN p.state IN ('learning', 'review', 'mastered') THEN 1 END) as in_progress
       FROM words w
-      LEFT JOIN user_progress p ON w.id = p.word_id
+      LEFT JOIN user_progress p ON (w.id = p.word_id AND p.user_id = ?)
       GROUP BY w.cefr_level
       ORDER BY w.cefr_level ASC
-    `).all();
+    `, [userId]);
 
     res.json({
       success: true,
@@ -447,9 +607,18 @@ router.get('/stats', (req, res) => {
         ...profile,
         ...levelInfo
       },
-      srs: srsCounts,
-      cefr: cefrCounts,
-      oxfordEngine: getOxfordEngineStatus()
+      srs: srsCounts || {
+        new_words: 4979,
+        learning: 0,
+        review: 0,
+        mastered: 0,
+        favorites: 0,
+        due_reviews: 0,
+        total_words: 4979
+      },
+      cefr: cefrCounts || [],
+      oxfordEngine: getOxfordEngineStatus(),
+      isOnlineDb: isCloudActive()
     });
   } catch (error) {
     console.error('Error fetching stats:', error);
@@ -457,17 +626,15 @@ router.get('/stats', (req, res) => {
   }
 });
 
-// GET /api/quiz-question - Instant dopamine multiple choice quiz (uses enriched words)
+// GET /api/quiz-question - Instant dopamine multiple choice quiz
 router.get('/quiz-question', async (req, res) => {
   try {
-    let target = db
-      .prepare(
-        "SELECT * FROM words WHERE enriched_at > 0 AND definition_pl != 'Ładowanie z Oxford API...' ORDER BY RANDOM() LIMIT 1"
-      )
-      .get();
+    let target = await cloudGet(
+      "SELECT * FROM words WHERE enriched_at > 0 AND definition_pl != 'Ładowanie z Oxford API...' ORDER BY RANDOM() LIMIT 1"
+    );
 
     if (!target) {
-      target = db.prepare('SELECT * FROM words ORDER BY RANDOM() LIMIT 1').get();
+      target = await cloudGet('SELECT * FROM words ORDER BY RANDOM() LIMIT 1');
       if (target) {
         target = await enrichWordByIdOrText(target.id);
       }
@@ -475,13 +642,11 @@ router.get('/quiz-question', async (req, res) => {
 
     if (!target) return res.status(404).json({ success: false, error: 'No words found' });
 
-    const distractors = db
-      .prepare(`
-        SELECT definition_pl FROM words 
-        WHERE id != ? AND enriched_at > 0 AND definition_pl != 'Ładowanie z Oxford API...'
-        ORDER BY RANDOM() LIMIT 3
-      `)
-      .all(target.id);
+    const distractors = await cloudAll(`
+      SELECT definition_pl FROM words 
+      WHERE id != ? AND enriched_at > 0 AND definition_pl != 'Ładowanie z Oxford API...'
+      ORDER BY RANDOM() LIMIT 3
+    `, [target.id]);
 
     const options = [
       { text: target.definition_pl, isCorrect: true },
@@ -510,10 +675,11 @@ router.get('/quiz-question', async (req, res) => {
   }
 });
 
-// GET /api/words - Search and browse all 3000+ Oxford words + live lookup
+// GET /api/words - Search and browse words with user progress overlay
 router.get('/words', async (req, res) => {
   try {
     const { q = '', cefr = '', limit = 60 } = req.query;
+    const userId = req.user.id;
     const cleanQ = String(q).trim();
 
     let query = `
@@ -527,10 +693,10 @@ router.get('/words', async (req, res) => {
         COALESCE(p.streak_count, 0) as streak_count,
         COALESCE(p.is_favorite, 0) as is_favorite
       FROM words w
-      LEFT JOIN user_progress p ON w.id = p.word_id
+      LEFT JOIN user_progress p ON (w.id = p.word_id AND p.user_id = ?)
       WHERE 1=1
     `;
-    const params = [];
+    const params = [userId];
 
     if (cleanQ) {
       query += ` AND (w.word LIKE ? OR w.definition_pl LIKE ? OR w.definition_en LIKE ?)`;
@@ -557,9 +723,9 @@ router.get('/words', async (req, res) => {
       params.push(Number(limit) || 60);
     }
 
-    let rows = db.prepare(query).all(...params);
+    let rows = await cloudAll(query, params);
 
-    // If user searched for a specific English word and no exact match exists, fetch live from Oxford API!
+    // If live search word not in database, lookup
     if (cleanQ && /^[a-zA-Z\-]+$/.test(cleanQ) && !rows.some(r => r.word.toLowerCase() === cleanQ.toLowerCase())) {
       const liveWord = await lookupOrEnrichWord(cleanQ);
       if (liveWord) {
@@ -576,69 +742,20 @@ router.get('/words', async (req, res) => {
   }
 });
 
-// POST /api/oxford/ingest - Silent autonomous bulk ingestion endpoint (accepts array of words or text)
-router.post('/oxford/ingest', async (req, res) => {
+// POST /api/reset - Reset SRS progress for the authenticated user only
+router.post('/reset', async (req, res) => {
   try {
-    const { words = [] } = req.body;
-    const list = Array.isArray(words)
-      ? words
-      : String(words || '')
-          .split(/[\r\n,;]+/)
-          .map(w => w.trim())
-          .filter(Boolean);
+    const userId = req.user.id;
+    await cloudRun('DELETE FROM user_progress WHERE user_id = ?', [userId]);
+    await cloudRun('DELETE FROM review_logs WHERE user_id = ?', [userId]);
+    await cloudRun(
+      'UPDATE user_profile SET xp = 0, level = 1, words_studied_today = 0, streak_days = 1 WHERE user_id = ?',
+      [userId]
+    );
 
-    if (list.length === 0) {
-      return res.status(400).json({ success: false, error: 'Provide words array or text' });
-    }
-
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO words (
-        word, phonetic, cefr_level, part_of_speech,
-        definition_en, definition_pl, example_en, example_pl,
-        collocations, synonyms, antonyms, oxford_category, memory_hook, frequency_rank, enriched_at
-      ) VALUES (?, ?, 'B2', 'word', 'Oxford core word.', 'Ładowanie z Oxford API...', '', '', '[]', '[]', '[]', 'Oxford Custom', '', 3000, 0)
-    `);
-
-    let inserted = 0;
-    db.exec('BEGIN TRANSACTION');
-    try {
-      for (const raw of list) {
-        const clean = String(raw).trim();
-        if (clean.length > 1) {
-          const info = insertStmt.run(clean, `/${clean.toLowerCase()}/`);
-          if (info.changes > 0) inserted++;
-        }
-      }
-      db.exec('COMMIT');
-    } catch (e) {
-      db.exec('ROLLBACK');
-      throw e;
-    }
-
-    const total = db.prepare('SELECT COUNT(*) as c FROM words').get().c;
-    res.json({ success: true, submitted: list.length, inserted, totalCatalog: total });
+    res.json({ success: true, message: 'Postęp użytkownika został zresetowany.' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/reset - Reset SRS progress without losing the Oxford words
-router.post('/reset', (req, res) => {
-  try {
-    db.exec(`
-      UPDATE user_progress SET
-        state = 'new',
-        repetitions = 0,
-        interval_days = 0,
-        ease_factor = 2.5,
-        next_review = 0,
-        last_review = 0,
-        last_rating = 0,
-        total_reviews = 0,
-        streak_count = 0
-    `);
-    res.json({ success: true });
-  } catch (error) {
+    console.error('Error resetting progress:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

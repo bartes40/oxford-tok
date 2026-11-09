@@ -122,7 +122,7 @@ export default function QuizChallengeModal({ onClose, onRewardXp }) {
                   <span className="text-[9px] font-tech-mono text-neutral-400 uppercase tracking-widest block mb-1">
                     KONTEKST ZDANIA OXFORD:
                   </span>
-                  <p className="text-sm italic text-neutral-200 font-sans">
+                  <p className="text-sm italic text-neutral-200 font-sans break-words [overflow-wrap:anywhere]">
                     "{question.example_en}"
                   </p>
                 </div>
@@ -148,9 +148,9 @@ export default function QuizChallengeModal({ onClose, onRewardXp }) {
                       key={i}
                       onClick={() => handleSelect(opt, i)}
                       disabled={isAnswered}
-                      className={`w-full p-4 rounded-xl font-sans text-sm text-left transition-all flex items-center justify-between active:scale-[0.99] backdrop-blur-md ${btnStyle}`}
+                      className={`w-full p-4 rounded-xl font-sans text-sm text-left transition-all flex items-center justify-between gap-3 active:scale-[0.99] backdrop-blur-md ${btnStyle}`}
                     >
-                      <span className="font-medium">{opt.text}</span>
+                      <span className="font-medium break-words [overflow-wrap:anywhere] flex-1">{opt.text}</span>
                       {isAnswered && opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-white" />}
                       {isAnswered && !opt.isCorrect && selectedOption === i && <XCircle className="w-4 h-4 text-rose-400" />}
                     </button>
