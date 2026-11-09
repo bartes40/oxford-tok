@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { playTap, playGood } from '../utils/sound';
 import StarGlint from './StarGlint';
+import { getAuthHeaders } from '../utils/auth';
 
 const OxfordBrowserRow = memo(function OxfordBrowserRow({
   item,
@@ -101,7 +102,7 @@ function OxfordBrowserModalComponent({
     try {
       const res = await fetch(
         `/api/words?q=${encodeURIComponent(q)}&cefr=${encodeURIComponent(cefr)}&limit=80`,
-        { signal: ac.signal }
+        { signal: ac.signal, headers: getAuthHeaders() }
       );
       const data = await res.json();
       if (data.success) {
@@ -137,7 +138,9 @@ function OxfordBrowserModalComponent({
     if (!wordObj.senses || wordObj.senses.length === 0 || wordObj.definition_pl === 'Ładowanie z Oxford API...') {
       setEnrichingId(wordObj.id || wordObj.word);
       try {
-        const res = await fetch(`/api/oxford/enrich/${encodeURIComponent(wordObj.id || wordObj.word)}`);
+        const res = await fetch(`/api/oxford/enrich/${encodeURIComponent(wordObj.id || wordObj.word)}`, {
+          headers: getAuthHeaders()
+        });
         const data = await res.json();
         if (data.success && data.word) {
           onSelectWord(data.word);
