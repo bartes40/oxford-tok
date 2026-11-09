@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { playGood, playFlip, playTap } from '../utils/sound';
 import StarGlint from './StarGlint';
+import SRSReviewBar from './SRSReviewBar';
 
 export default function WordCard({
   word,
@@ -16,7 +17,8 @@ export default function WordCard({
   onToggleFavorite,
   onOpenDeepDive,
   currentAccent = 'en-GB',
-  onToggleAccent
+  onToggleAccent,
+  onRateWord
 }) {
   const [flyingHearts, setFlyingHearts] = useState([]);
   const cardRef = useRef(null);
@@ -369,8 +371,9 @@ export default function WordCard({
             )}
 
             <div className="flex items-center gap-2 shrink-0">
-              <span className="hidden sm:inline-block font-tech-mono text-[10px] text-neutral-500 uppercase tracking-widest">
-                DOTKNIJ ↻
+              <span className="inline-flex items-center gap-1.5 font-tech-mono text-[10px] sm:text-[11px] text-cyan-300 bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/25 uppercase tracking-wider font-semibold">
+                <RotateCw className="w-3 h-3 text-cyan-300 animate-spin-slow" />
+                DOTKNIJ // POLSKI
               </span>
             </div>
           </div>
@@ -519,6 +522,17 @@ export default function WordCard({
                 </div>
               </div>
             )}
+            {/* Spaced Repetition (SRS) Knowledge Rating Dock */}
+            {onRateWord && (
+              <div className="mt-3 sm:mt-4 pt-2 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-wider mb-1 px-1">
+                  <span>OCENA WIEDZY (SRS)</span>
+                  <span className="text-cyan-300 font-semibold">+XP & NASTĘPNE ➔</span>
+                </div>
+                <SRSReviewBar word={word} onRate={onRateWord} />
+              </div>
+            )}
+
           </div>
 
           {/* 3. BOTTOM FOOTER: Word Reference, Audio & Return Button */}

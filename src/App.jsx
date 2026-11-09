@@ -3,6 +3,8 @@ import TopBarMinimal from './components/TopBarMinimal';
 import TikTokFeed from './components/TikTokFeed';
 import OxfordDeepDiveModal from './components/OxfordDeepDiveModal';
 import OxfordBrowserModal from './components/OxfordBrowserModal';
+import QuizChallengeModal from './components/QuizChallengeModal';
+import StatsModal from './components/StatsModal';
 import { speakWord, getAccent, setAccent } from './utils/speech';
 import { isSoundEnabled, toggleSound, playTap } from './utils/sound';
 
@@ -14,6 +16,9 @@ export default function App() {
   // Modals
   const [deepDiveWord, setDeepDiveWord] = useState(null);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [statsData, setStatsData] = useState(null);
 
   // Audio & Accent Settings
   const [soundOn, setSoundOn] = useState(isSoundEnabled());
@@ -34,6 +39,66 @@ export default function App() {
       console.error('Error loading feed:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      if (data.success) {
+        setStatsData(data);
+      }
+    } catch (e) {
+      console.error('Error fetching stats:', e);
+    }
+  };
+
+  const handleOpenStats = () => {
+    fetchStats();
+    setIsStatsOpen(true);
+  };
+
+  const handleResetProgress = async () => {
+    try {
+      const res = await fetch('/api/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        fetchFeed(currentFilter);
+        fetchStats();
+      }
+    } catch (e) {
+      console.error('Error resetting progress:', e);
+    }
+  };
+
+  // Spaced Repetition card rating
+  const handleRateWord = async (wordId, rating) => {
+    try {
+      const res = await fetch('/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word_id: wordId, rating })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWords((prev) =>
+          prev.map((w) =>
+            w.id === wordId
+              ? {
+                  ...w,
+                  state: data.updatedProgress?.state || w.state,
+                  repetitions: data.updatedProgress?.repetitions || w.repetitions,
+                  interval_days: data.updatedProgress?.interval_days || w.interval_days,
+                  ease_factor: data.updatedProgress?.ease_factor || w.ease_factor,
+                  next_review: data.updatedProgress?.next_review || w.next_review
+                }
+              : w
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error submitting review:', err);
     }
   };
 
@@ -126,6 +191,8 @@ export default function App() {
         soundOn={soundOn}
         onToggleSound={handleToggleSound}
         onOpenBrowser={() => setIsBrowserOpen(true)}
+        onOpenQuiz={() => setIsQuizOpen(true)}
+        onOpenStats={handleOpenStats}
       />
 
       {/* Main TikTok Feed Container */}
@@ -143,6 +210,9 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             onSpeak={handleSpeak}
             onOpenDeepDive={setDeepDiveWord}
+            onOpenQuiz={() => setIsQuizOpen(true)}
+            onOpenStats={handleOpenStats}
+            onRateWord={handleRateWord}
             currentAccent={currentAccent}
             onToggleAccent={handleToggleAccent}
             onLoadMore={handleLoadMore}
@@ -159,6 +229,23 @@ export default function App() {
           onSpeak={handleSpeak}
           currentAccent={currentAccent}
           onWordUpdated={handleWordUpdated}
+        />
+      )}
+
+      {/* Pop Quiz Challenge Modal */}
+      {isQuizOpen && (
+        <QuizChallengeModal
+          onClose={() => setIsQuizOpen(false)}
+          onRewardXp={() => fetchStats()}
+        />
+      )}
+
+      {/* Stats & Spaced Repetition Profile Modal */}
+      {isStatsOpen && statsData && (
+        <StatsModal
+          stats={statsData}
+          onClose={() => setIsStatsOpen(false)}
+          onResetProgress={handleResetProgress}
         />
       )}
 

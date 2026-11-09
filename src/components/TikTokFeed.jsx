@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WordCard from './WordCard';
+import RightActionRail from './RightActionRail';
 import { playSwoosh, playFlip } from '../utils/sound';
 
 export default function TikTokFeed({
@@ -7,6 +8,9 @@ export default function TikTokFeed({
   onToggleFavorite,
   onSpeak,
   onOpenDeepDive,
+  onOpenQuiz,
+  onOpenStats,
+  onRateWord,
   currentAccent,
   onToggleAccent,
   onLoadMore,
@@ -92,6 +96,16 @@ export default function TikTokFeed({
     }
   };
 
+  // Spaced Repetition (SRS) auto-advance after rating
+  const handleRateAndNext = (wordId, rating) => {
+    if (onRateWord) {
+      onRateWord(wordId, rating);
+    }
+    setTimeout(() => {
+      triggerTransition('next');
+    }, 200);
+  };
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -107,12 +121,21 @@ export default function TikTokFeed({
         e.preventDefault();
         playFlip();
         setIsRevealed((r) => !r);
+      } else if (['1', '2', '3', '4'].includes(e.key) && currentWord) {
+        e.preventDefault();
+        handleRateAndNext(currentWord.id, Number(e.key));
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        if (currentWord && onToggleFavorite) onToggleFavorite(currentWord.id);
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        if (currentWord && onSpeak) onSpeak(currentWord);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, words.length]);
+  }, [currentIndex, words.length, currentWord]);
 
   // Mouse Wheel Handling (Debounced for silky gesture response)
   const handleWheel = (e) => {
@@ -446,16 +469,34 @@ export default function TikTokFeed({
           className="absolute inset-0 w-full h-full flex items-center justify-center z-20"
           style={getStyleForSlot('current')}
         >
-          <WordCard
-            word={currentWord}
-            onSpeak={onSpeak}
-            isRevealed={isRevealed}
-            onToggleReveal={() => setIsRevealed(!isRevealed)}
-            onToggleFavorite={onToggleFavorite}
-            onOpenDeepDive={onOpenDeepDive}
-            currentAccent={currentAccent}
-            onToggleAccent={onToggleAccent}
-          />
+          <div className="relative w-full h-full flex items-center justify-center">
+            <WordCard
+              word={currentWord}
+              onSpeak={onSpeak}
+              isRevealed={isRevealed}
+              onToggleReveal={() => setIsRevealed(!isRevealed)}
+              onToggleFavorite={onToggleFavorite}
+              onOpenDeepDive={onOpenDeepDive}
+              currentAccent={currentAccent}
+              onToggleAccent={onToggleAccent}
+              onRateWord={handleRateAndNext}
+            />
+
+            {/* TikTok Right Action Rail floating on the right */}
+            <div className="absolute right-2 sm:right-3 bottom-20 sm:bottom-24 z-40 pointer-events-auto">
+              <RightActionRail
+                word={currentWord}
+                onSpeak={onSpeak}
+                onToggleFavorite={onToggleFavorite}
+                onOpenDeepDive={onOpenDeepDive}
+                onToggleReveal={() => setIsRevealed(!isRevealed)}
+                onOpenQuiz={onOpenQuiz}
+                onOpenStats={onOpenStats}
+                currentAccent={currentAccent}
+                onToggleAccent={onToggleAccent}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Next Card (Slides in from bottom when dragging up) */}
