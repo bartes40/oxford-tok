@@ -1,0 +1,333 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  html, body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #020408;
+    color: #f8fafc;
+    user-select: none;
+    -webkit-user-select: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Atmospheric Noir Obsidian Canvas with Subtle Starlight & Film Grain */
+.bg-noir {
+  background-color: #010204;
+  background-image: 
+    radial-gradient(circle at 50% -10%, rgba(255, 255, 255, 0.05) 0%, transparent 60%),
+    radial-gradient(circle at 50% 110%, rgba(30, 41, 59, 0.25) 0%, transparent 70%);
+}
+
+/* Liquid Chrome Typography (ASCENSION Aesthetic) */
+.chrome-text {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #f1f5f9 22%,
+    #94a3b8 44%,
+    #475569 49%,
+    #ffffff 51%,
+    #cbd5e1 72%,
+    #64748b 88%,
+    #334155 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 20px rgba(255, 255, 255, 0.25));
+  letter-spacing: -0.035em;
+  display: inline-block;
+  padding-bottom: 0.16em;
+  padding-top: 0.04em;
+  line-height: 1.14;
+}
+
+.chrome-text-silver {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #e2e8f0 30%,
+    #94a3b8 50%,
+    #ffffff 52%,
+    #cbd5e1 75%,
+    #475569 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 14px rgba(226, 232, 240, 0.3));
+  display: inline-block;
+  padding-bottom: 0.16em;
+  padding-top: 0.04em;
+  line-height: 1.14;
+}
+
+.chrome-text-subtle {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #e2e8f0 40%,
+    #94a3b8 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 4-Point Star Lens Flare Glint Keyframes */
+@keyframes starGlintPulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.85) rotate(0deg);
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35) rotate(90deg);
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1)) drop-shadow(0 0 16px rgba(148, 163, 184, 0.9));
+  }
+}
+
+.animate-star-glint {
+  animation: starGlintPulse 3.8s ease-in-out infinite;
+}
+
+/* TikTok Signature Double-Tap Flying Heart Animation */
+@keyframes tiktokHeartPopFly {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2) rotate(var(--heart-rot, 0deg));
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.3) rotate(var(--heart-rot, 0deg));
+  }
+  30% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(var(--heart-rot, 0deg));
+  }
+  65% {
+    opacity: 0.95;
+    transform: translate(-50%, -50px) scale(1.05) rotate(calc(var(--heart-rot, 0deg) * 1.15));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -110px) scale(0.75) rotate(calc(var(--heart-rot, 0deg) * 1.35));
+  }
+}
+
+.animate-tiktok-heart {
+  animation: tiktokHeartPopFly 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* High-Fashion Technical Monospace Utility */
+.font-tech-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-feature-settings: "zero" 1, "tnum" 1;
+  letter-spacing: 0.07em;
+}
+
+/* Obsidian Glass Surface */
+.obsidian-card-surface {
+  background: radial-gradient(130% 120% at 50% 0%, #0d121c 0%, #030508 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 30px 80px -20px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+}
+
+/* Safe area helpers for mobile notches & home bars */
+.pt-safe-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.pb-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.card-pt-safe {
+  padding-top: calc(max(0.75rem, env(safe-area-inset-top)) + 3.25rem);
+}
+
+.card-pb-safe {
+  padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));
+}
+
+/* Vertical touch gesture lock for TikTok feed */
+.touch-pan-y-only {
+  touch-action: pan-y;
+}
+
+.font-display {
+  font-family: 'Syne', -apple-system, sans-serif;
+  letter-spacing: -0.035em;
+}
+
+.font-editorial {
+  font-family: 'Instrument Serif', Georgia, serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Industrial Precision Shadows & Borders */
+.industrial-card {
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.industrial-panel {
+  background: rgba(13, 21, 41, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+.industrial-button {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.industrial-button:hover {
+  transform: translateY(-1px);
+}
+
+.industrial-button:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* Subtle Technical Dot Matrix Background */
+.bg-tech-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Hide scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 3D Hardware-Accelerated Flashcard Flip Mechanics */
+.perspective-1400 {
+  perspective: 1400px;
+  -webkit-perspective: 1400px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  -moz-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+}
+
+.flip-card-inner {
+  transition: transform 0.62s cubic-bezier(0.23, 1, 0.32, 1);
+  will-change: transform;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+}
+
+/* Industrial Mechanical Slide Transitions */
+@keyframes cardSlideInNext {
+  0% {
+    transform: translateY(60px) scale(0.94);
+    opacity: 0;
+    filter: blur(4px);
+  }
+  100% {
+    transform: translateY(0px) scale(1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+}
+
+@keyframes cardSlideInPrev {
+  0% {
+    transform: translateY(-60px) scale(0.94);
+    opacity: 0;
+    filter: blur(4px);
+  }
+  100% {
+    transform: translateY(0px) scale(1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+}
+
+.animate-card-next {
+  animation: cardSlideInNext 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-card-prev {
+  animation: cardSlideInPrev 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Industrial Subtle Pulse Glow */
+@keyframes techPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+}
+
+.animate-tech-pulse {
+  animation: techPulse 2s ease-in-out infinite;
+}
+
+/* Floating XP badge */
+@keyframes xpIndustrialFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1.05);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-28px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-45px) scale(0.9);
+  }
+}
+
+.animate-xp-industrial {
+  animation: xpIndustrialFloat 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

@@ -1,0 +1,35 @@
+{
+  "name": "oxford-tok",
+  "version": "1.0.0",
+  "description": "TikTok-style dopamine English vocabulary app with Oxford 3000, SQL database, and SRS algorithm",
+  "type": "module",
+  "scripts": {
+    "dev": "node --max-old-space-size=4096 server/index.js",
+    "seed": "node server/seed.js",
+    "build": "vite build",
+    "start": "node --max-old-space-size=4096 server/index.js",
+    "db:push": "node scripts/seed-cloud-db.js",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "canvas-confetti": "^1.9.4",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "lucide-react": "^1.70.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "autoprefixer": "^10.6.2",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.6"
+  }
+}
