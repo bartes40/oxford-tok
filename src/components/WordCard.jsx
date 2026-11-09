@@ -116,6 +116,11 @@ export default function WordCard({
   const secondaryMeaningsPl = polishMeanings.slice(1, 4);
 
   const handleCardClick = (e) => {
+    // If clicked on an interactive button, audio, or modal trigger, ignore card flip
+    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('[data-no-flip]')) {
+      return;
+    }
+
     const now = Date.now();
     const diff = now - lastClickTimeRef.current;
 
@@ -156,7 +161,7 @@ export default function WordCard({
       return;
     }
 
-    // First tap detected -> schedule flip after 240ms debounce window
+    // First tap detected -> schedule flip after snappy 140ms debounce window
     lastClickTimeRef.current = now;
     if (clickTimerRef.current) {
       clearTimeout(clickTimerRef.current);
@@ -166,7 +171,7 @@ export default function WordCard({
       if (onToggleReveal) onToggleReveal();
       clickTimerRef.current = null;
       lastClickTimeRef.current = 0;
-    }, 240);
+    }, 140);
   };
 
   const displayedPhonetic =
@@ -195,15 +200,16 @@ export default function WordCard({
 
       {/* 3D Flipping Core Canvas */}
       <div
-        className={`relative w-full h-full preserve-3d flip-card-inner ${
-          isRevealed ? 'rotate-y-180' : ''
+        className={`relative w-full h-full flip-card-inner ${
+          isRevealed ? 'is-flipped' : ''
         }`}
       >
         {/* ============================================================ */}
         {/* AWERS (FRONT): High-Fashion Obsidian Chrome ("ASCENSION")    */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="absolute inset-0 w-full h-full backface-hidden rounded-none sm:rounded-[36px] obsidian-card-surface text-white flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
+        <div className="flip-card-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden">
+          <div className="w-full h-full flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
           
           {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Quick Rotate */}
           <div className="flex items-center justify-between">
@@ -369,15 +375,17 @@ export default function WordCard({
             </div>
           </div>
         </div>
+        </div>
 
         {/* ============================================================ */}
         {/* REWERS (BACK): High-Fashion Noir Obsidian Chrome             */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-none sm:rounded-[36px] obsidian-card-surface text-white flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
-          
-          {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Return */}
-          <div>
+        <div className="flip-card-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden">
+          <div className="w-full h-full flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
+            
+            {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Return */}
+            <div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-tech-mono text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded bg-white text-black tracking-wider uppercase shadow-[0_0_12px_rgba(255,255,255,0.45)]">
@@ -554,6 +562,7 @@ export default function WordCard({
             </div>
           </div>
 
+        </div>
         </div>
       </div>
     </div>
