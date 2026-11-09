@@ -5,6 +5,16 @@
 
 let audioCtx = null;
 let soundEnabled = true;
+let idleTimer = null;
+
+function scheduleContextSuspend() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (audioCtx && audioCtx.state === 'running') {
+      audioCtx.suspend().catch(() => {});
+    }
+  }, 4000);
+}
 
 function getAudioContext() {
   if (!audioCtx && typeof window !== 'undefined') {
@@ -14,9 +24,19 @@ function getAudioContext() {
     }
   }
   if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume();
+    audioCtx.resume().catch(() => {});
   }
+  scheduleContextSuspend();
   return audioCtx;
+}
+
+function attachNodeCleanup(osc, gain) {
+  osc.onended = () => {
+    try {
+      osc.disconnect();
+      gain.disconnect();
+    } catch (e) {}
+  };
 }
 
 export function toggleSound(enabled) {
@@ -53,6 +73,7 @@ export function playTap() {
 
   osc.connect(gain);
   gain.connect(ctx.destination);
+  attachNodeCleanup(osc, gain);
 
   osc.start();
   osc.stop(ctx.currentTime + 0.025);
@@ -76,6 +97,7 @@ export function playFlip() {
 
   osc.connect(gain);
   gain.connect(ctx.destination);
+  attachNodeCleanup(osc, gain);
 
   osc.start();
   osc.stop(ctx.currentTime + 0.045);
@@ -99,6 +121,7 @@ export function playSwoosh() {
 
   osc.connect(gain);
   gain.connect(ctx.destination);
+  attachNodeCleanup(osc, gain);
 
   osc.start();
   osc.stop(ctx.currentTime + 0.06);
@@ -122,6 +145,7 @@ export function playLike() {
 
   osc.connect(gain);
   gain.connect(ctx.destination);
+  attachNodeCleanup(osc, gain);
 
   osc.start();
   osc.stop(ctx.currentTime + 0.05);
@@ -147,6 +171,7 @@ export function playGood() {
 
     osc.connect(gain);
     gain.connect(ctx.destination);
+    attachNodeCleanup(osc, gain);
 
     osc.start(ctx.currentTime + idx * 0.04);
     osc.stop(ctx.currentTime + idx * 0.04 + 0.22);
@@ -173,6 +198,7 @@ export function playEasy() {
 
     osc.connect(gain);
     gain.connect(ctx.destination);
+    attachNodeCleanup(osc, gain);
 
     osc.start(ctx.currentTime + idx * 0.035);
     osc.stop(ctx.currentTime + idx * 0.035 + 0.25);
@@ -197,6 +223,7 @@ export function playAgain() {
 
   osc.connect(gain);
   gain.connect(ctx.destination);
+  attachNodeCleanup(osc, gain);
 
   osc.start();
   osc.stop(ctx.currentTime + 0.06);
@@ -228,6 +255,7 @@ export function playFanfare() {
 
     osc.connect(gain);
     gain.connect(ctx.destination);
+    attachNodeCleanup(osc, gain);
 
     osc.start(ctx.currentTime + n.time);
     osc.stop(ctx.currentTime + n.time + n.dur);

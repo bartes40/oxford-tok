@@ -6,6 +6,21 @@
 
 let selectedAccent = 'en-GB'; // Default to Oxford standard British English
 let activeAudio = null;
+let cachedVoices = [];
+
+// Initialize voices cache cleanly once available
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  const updateVoices = () => {
+    try {
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length > 0) cachedVoices = v;
+    } catch (e) {}
+  };
+  updateVoices();
+  if (window.speechSynthesis.onvoiceschanged !== undefined) {
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  }
+}
 
 export function setAccent(accent) {
   selectedAccent = accent;
@@ -32,12 +47,16 @@ export function speakWord(wordOrText, options = {}) {
   if (activeAudio) {
     try {
       activeAudio.pause();
-      activeAudio.currentTime = 0;
+      activeAudio.onended = null;
+      activeAudio.onerror = null;
+      activeAudio.src = '';
     } catch (e) {}
     activeAudio = null;
   }
   if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
   }
 
   const text = typeof wordOrText === 'object' ? wordOrText.word : String(wordOrText || '');
@@ -52,6 +71,9 @@ export function speakWord(wordOrText, options = {}) {
       const audio = new Audio(targetMp3);
       audio.playbackRate = isSlow ? 0.68 : 1.0;
       activeAudio = audio;
+      audio.onended = () => {
+        if (activeAudio === audio) activeAudio = null;
+      };
       audio.play().catch(() => {
         speakWithSynthesis(text, accent, isSlow);
       });
@@ -72,7 +94,7 @@ function speakWithSynthesis(text, accent, isSlow) {
   utterance.pitch = 1.0;
   utterance.lang = accent;
 
-  const voices = window.speechSynthesis.getVoices();
+  const voices = cachedVoices.length > 0 ? cachedVoices : (window.speechSynthesis.getVoices() || []);
   const langTarget = utterance.lang.toLowerCase();
 
   const bestVoice =

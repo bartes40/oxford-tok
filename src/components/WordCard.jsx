@@ -276,10 +276,9 @@ export default function WordCard({
       clearTimeout(clickTimerRef.current);
     }
 
-    // Schedule card flip after debounce window (if no subsequent tap arrives, this was a single click to flip)
+    // Schedule card flip after debounce window (if no subsequent tap arrives within 280ms, this was a single click to flip)
     clickTimerRef.current = setTimeout(() => {
       clickTimerRef.current = null;
-      lastClickTimeRef.current = 0;
       pendingFirstTapPosRef.current = null;
       playFlip();
       if (onToggleReveal) onToggleReveal();
@@ -295,21 +294,6 @@ export default function WordCard({
       onClick={handleCardClick}
       className="relative w-full sm:max-w-md mx-auto h-full sm:max-h-[84dvh] perspective-1400 select-none cursor-pointer"
     >
-      {/* TikTok Signature Flying Hearts at Tap Location (No Circle, Pure Floater) */}
-      {flyingHearts.map((heart) => (
-        <div
-          key={heart.id}
-          className="absolute z-50 pointer-events-none animate-tiktok-heart"
-          style={{
-            left: `${heart.x}px`,
-            top: `${heart.y}px`,
-            '--heart-rot': heart.rot
-          }}
-        >
-          <Heart className="w-16 h-16 sm:w-20 sm:h-20 text-[#fe2c55] fill-[#fe2c55] drop-shadow-[0_4px_24px_rgba(254,44,85,0.85)]" />
-        </div>
-      ))}
-
       {/* 3D Flipping Core Canvas */}
       <div
         className={`relative w-full h-full flip-card-inner ${
@@ -349,6 +333,10 @@ export default function WordCard({
                     playTap();
                   } else {
                     playGood();
+                    if (cardRef.current) {
+                      const rect = cardRef.current.getBoundingClientRect();
+                      spawnFlyingHeart(rect.width / 2, rect.height / 2);
+                    }
                   }
                   if (onToggleFavorite) onToggleFavorite(word.id);
                 }}
@@ -529,6 +517,10 @@ export default function WordCard({
                       playTap();
                     } else {
                       playGood();
+                      if (cardRef.current) {
+                        const rect = cardRef.current.getBoundingClientRect();
+                        spawnFlyingHeart(rect.width / 2, rect.height / 2);
+                      }
                     }
                     if (onToggleFavorite) onToggleFavorite(word.id);
                   }}
@@ -684,6 +676,23 @@ export default function WordCard({
 
           </div>
         </div>
+      </div>
+
+      {/* TikTok Signature Flying Hearts at Tap Location (ALWAYS ON TOP IN 2D & 3D) */}
+      <div className="absolute inset-0 pointer-events-none z-[9999] overflow-visible">
+        {flyingHearts.map((heart) => (
+          <div
+            key={heart.id}
+            className="absolute pointer-events-none animate-tiktok-heart"
+            style={{
+              left: `${heart.x}px`,
+              top: `${heart.y}px`,
+              '--heart-rot': heart.rot
+            }}
+          >
+            <Heart className="w-16 h-16 sm:w-20 sm:h-20 text-[#fe2c55] fill-[#fe2c55] drop-shadow-[0_4px_24px_rgba(254,44,85,0.95)]" />
+          </div>
+        ))}
       </div>
     </div>
   );
