@@ -216,10 +216,162 @@ export async function syncOxford3000Catalog() {
 }
 
 /**
- * 2. Translate English word & sentences to Polish + get Polish synonyms via Google & Oxford master dictionary
+ * 2. Translate English word & sentences to Polish using Diki.pl (Primary) + Google Translate (Fallback)
  */
 export function translationAvailable() {
   return true;
+}
+
+// Map Oxford CEFR / grammatical parts of speech to Diki Polish POS headers
+function normalizePosToDiki(pos = '') {
+  const p = String(pos || '').toLowerCase();
+  const targets = [];
+  if (p.includes('verb') && !p.includes('adverb')) targets.push('czasownik');
+  if (p.includes('noun')) targets.push('rzeczownik');
+  if (p.includes('adj')) targets.push('przymiotnik');
+  if (p.includes('adv')) targets.push('przysłówek');
+  if (p.includes('prep')) targets.push('przyimek');
+  if (p.includes('conj')) targets.push('spójnik');
+  if (p.includes('pron')) targets.push('zaimek');
+  if (p.includes('exclam') || p.includes('interj')) targets.push('wykrzyknik');
+  if (p.includes('idiom')) targets.push('idiom');
+  return targets;
+}
+
+/**
+ * High-precision Diki.pl Scraper / API:
+ * - Sorts strictly by real-world frequency (most common usage first)
+ * - Targets exact grammatical part of speech matching Oxford
+ * - Extracts authentic example sentences with natural Polish translations
+ */
+export async function fetchDikiLinguistics(word, posHint = '') {
+  const cleanWord = String(word || '').toLowerCase().trim();
+  if (!cleanWord) return null;
+
+  try {
+    const url = `https://www.diki.pl/slownik-angielskiego?q=${encodeURIComponent(cleanWord)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pl,en-US;q=0.9,en;q=0.8'
+      },
+      signal: AbortSignal.timeout(4500)
+    });
+
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const targetPosNames = normalizePosToDiki(posHint);
+
+    const entities = [...html.matchAll(/<div class="dictionaryEntity"[^>]*>([\s\S]*?)(?=<div class="dictionaryEntity"|$)/g)];
+    if (entities.length === 0) return null;
+
+    // Filter to entities whose headword matches or starts with our cleanWord
+    const validEntities = entities.filter(ent => {
+      const hwMatch = ent[1].match(/<span class="hw">([\s\S]*?)<\/span>/);
+      if (!hwMatch) return true;
+      const hwText = cleanHtml(hwMatch[1]).toLowerCase();
+      return hwText === cleanWord || hwText.startsWith(cleanWord);
+    });
+
+    const candidateEntities = validEntities.length > 0 ? validEntities : entities.slice(0, 3);
+
+    // Two-pass POS matching:
+    // Pass 1: find all POS sections matching targetPosNames across candidate entities
+    const matchedSections = [];
+    const allSections = [];
+
+    for (const ent of candidateEntities) {
+      const entHtml = ent[1];
+      const posSections = [...entHtml.matchAll(/<div class="partOfSpeechSectionHeader">[\s\S]*?<span class="partOfSpeech">([^<]+)<\/span>([\s\S]*?)(?=<div class="partOfSpeechSectionHeader"|$)/g)];
+
+      for (const s of posSections) {
+        allSections.push(s);
+        const sPos = s[1].trim().toLowerCase();
+        if (targetPosNames.length > 0 && targetPosNames.some(tp => sPos.includes(tp))) {
+          matchedSections.push(s);
+        }
+      }
+    }
+
+    const sectionsToProcess = matchedSections.length > 0 ? matchedSections : allSections;
+    if (sectionsToProcess.length === 0) return null;
+
+    const orderedMeanings = [];
+    let primaryExample = null;
+    const senses = [];
+
+    for (const [_, posName, sectionContent] of sectionsToProcess) {
+      const listItems = [...sectionContent.matchAll(/<li[^>]*id="meaning[^"]*"[^>]*>([\s\S]*?)<\/li>/g)];
+
+      for (const li of listItems) {
+        const liContent = li[1];
+        const hwSpans = [...liContent.matchAll(/<span class="hw"[^>]*>([\s\S]*?)<\/span>/g)];
+        const meaningTerms = [];
+
+        for (const hwSpan of hwSpans) {
+          const raw = hwSpan[1];
+          const linkMatch = raw.match(/<a[^>]*class="plainLink"[^>]*>([\s\S]*?)<\/a>/);
+          const mainTerm = linkMatch ? cleanHtml(linkMatch[1]) : cleanHtml(raw);
+
+          const cleanTerm = mainTerm
+            .replace(/\s*\([^)]*\)/g, '')
+            .replace(/[,\/]$/, '')
+            .trim();
+
+          if (cleanTerm && !meaningTerms.some(t => t.toLowerCase() === cleanTerm.toLowerCase())) {
+            meaningTerms.push(cleanTerm);
+          }
+        }
+
+        if (meaningTerms.length > 0) {
+          for (const t of meaningTerms) {
+            if (!orderedMeanings.some(m => m.toLowerCase() === t.toLowerCase())) {
+              orderedMeanings.push(t);
+            }
+          }
+        }
+
+        let senseExample = null;
+        const exampleDiv = liContent.match(/<div class="exampleSentence"[^>]*>([\s\S]*?)<\/div>/);
+        if (exampleDiv) {
+          const rawEx = cleanHtml(exampleDiv[1]);
+          const matchEx = rawEx.match(/^(.*?)\s*\((.*?)\)\s*$/);
+          if (matchEx) {
+            senseExample = {
+              en: matchEx[1].trim(),
+              pl: matchEx[2].trim()
+            };
+            if (!primaryExample) {
+              primaryExample = senseExample;
+            }
+          }
+        }
+
+        senses.push({
+          pos: posName.trim(),
+          meanings: meaningTerms,
+          example: senseExample
+        });
+      }
+
+      if (orderedMeanings.length >= 6) break;
+    }
+
+    if (orderedMeanings.length === 0) return null;
+
+    return {
+      source: 'diki',
+      primaryMeaning: orderedMeanings[0],
+      definition_pl: orderedMeanings.slice(0, 5).join(', '),
+      allMeanings: orderedMeanings.slice(0, 8),
+      example: primaryExample,
+      senses: senses.slice(0, 6)
+    };
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
@@ -240,7 +392,8 @@ async function translateToPolish(text) {
   for (const url of endpoints) {
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT }
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(3000)
       });
       if (res.ok) {
         const raw = await res.json();
@@ -272,18 +425,46 @@ async function translateToPolish(text) {
   return '';
 }
 
-async function fetchPolishLinguistics(word, primaryDefEn, primaryExampleEn) {
+/**
+ * Multi-tier Polish Linguistics Provider:
+ * 1. Tier 1 (Gold Standard): Diki.pl (Frequency-ranked, POS-matched, authentic examples)
+ * 2. Tier 2 (Live Fallback): Google Translate dictionary breakdown (dt=bd)
+ * 3. Tier 3 (Offline Fallback): Local Oxford master dictionary
+ */
+async function fetchPolishLinguistics(word, primaryDefEn, primaryExampleEn, posHint = '') {
   const cleanWord = String(word || '').toLowerCase().trim();
   const cleanWordNoEntity = cleanWord.replace(/&#x2122;/g, '™');
   const masterGloss = masterDict[cleanWord] || masterDict[cleanWordNoEntity] || '';
 
+  // 1. Try Diki as PRIMARY Gold-Standard source
+  const dikiData = await fetchDikiLinguistics(cleanWord, posHint);
+  if (dikiData && dikiData.allMeanings && dikiData.allMeanings.length > 0) {
+    let examplePl = '';
+    // If Diki provided a great translated example and we don't have an authentic Oxford example or want Diki's
+    if (dikiData.example && (!primaryExampleEn || primaryExampleEn.startsWith('This is an essential Oxford 3000'))) {
+      examplePl = dikiData.example.pl;
+    } else if (primaryExampleEn && !primaryExampleEn.startsWith('This is an essential Oxford 3000')) {
+      // Translate the authentic Oxford example sentence
+      examplePl = await translateToPolish(primaryExampleEn);
+    }
+
+    return {
+      source: 'diki',
+      definition_pl: dikiData.definition_pl,
+      example_pl: examplePl || dikiData.example?.pl || '',
+      polishSynonyms: dikiData.allMeanings,
+      dikiSenses: dikiData.senses || [],
+      dikiExample: dikiData.example
+    };
+  }
+
+  // 2. Fallback to Google Live Dictionary & Translate if Diki has no entry
   let definitionPl = masterGloss;
   let examplePl = '';
   let polishSynonyms = masterGloss
     ? masterGloss.split(/[,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 6)
     : [];
 
-  // Try live dictionary breakdown for rich synonyms and alternate meanings
   const dictUrls = [
     `https://clients5.google.com/translate_a/single?client=dict-chrome-ex&sl=en&tl=pl&dt=t&dt=bd&q=${encodeURIComponent(word)}`,
     `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=en&tl=pl&dt=t&dt=bd&q=${encodeURIComponent(word)}`
@@ -291,7 +472,10 @@ async function fetchPolishLinguistics(word, primaryDefEn, primaryExampleEn) {
 
   for (const urlWord of dictUrls) {
     try {
-      const resWord = await fetch(urlWord, { headers: { 'User-Agent': USER_AGENT } });
+      const resWord = await fetch(urlWord, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(3000)
+      });
       if (resWord.ok) {
         const data = await resWord.json();
         const mainTrans = data?.[0]?.[0]?.[0] || '';
@@ -314,7 +498,7 @@ async function fetchPolishLinguistics(word, primaryDefEn, primaryExampleEn) {
     } catch (e) {}
   }
 
-  // 2. Translate primary example sentence into natural Polish
+  // Translate primary example sentence into natural Polish
   if (primaryExampleEn && !primaryExampleEn.startsWith('This is an essential Oxford 3000')) {
     examplePl = await translateToPolish(primaryExampleEn);
   }
@@ -334,6 +518,7 @@ async function fetchPolishLinguistics(word, primaryDefEn, primaryExampleEn) {
   }
 
   return {
+    source: 'google',
     definition_pl: definitionPl || masterGloss || '',
     example_pl: examplePl || '',
     polishSynonyms
@@ -673,7 +858,7 @@ const stmtPendingBatch = db.prepare(`
 /**
  * 6. Enrich a single word row in SQLite with full multidimensional data from Oxford + Lexical + Polish APIs
  */
-export async function enrichWordByIdOrText(identifier) {
+export async function enrichWordByIdOrText(identifier, forceRefresh = false) {
   const row =
     typeof identifier === 'number'
       ? stmtWordById.get(identifier)
@@ -681,8 +866,9 @@ export async function enrichWordByIdOrText(identifier) {
 
   if (!row) return null;
 
-  // If already enriched with multidimensional senses, authentic Oxford example AND Polish translation, return immediately
+  // If already enriched and not forcing refresh, return immediately
   if (
+    !forceRefresh &&
     row.enriched_at > 1 &&
     row.senses_json &&
     row.senses_json !== '[]' &&
@@ -719,7 +905,7 @@ export async function enrichWordByIdOrText(identifier) {
     lexicalData.fallbackExample ||
     `The concept of ${word} plays an important role in everyday communication.`;
 
-  // Fetch Polish translations
+  // Fetch Polish translations (prioritizing Diki)
   const hasCuratedPl =
     row.definition_pl &&
     row.definition_pl !== 'Ładowanie z Oxford API...' &&
@@ -730,17 +916,22 @@ export async function enrichWordByIdOrText(identifier) {
   const plData = await fetchPolishLinguistics(
     word,
     primaryDefEn,
-    primaryExampleEn
+    primaryExampleEn,
+    oxData?.part_of_speech || row.part_of_speech
   );
 
   // Also translate up to 4 top senses into Polish so each sense in Deep Dive has its own Polish meaning!
   const sensesToStore = oxData?.senses?.slice(0, 6) || [];
   if (sensesToStore.length > 0) {
     await Promise.allSettled(
-      sensesToStore.slice(0, 4).map(async sense => {
+      sensesToStore.slice(0, 4).map(async (sense, sIdx) => {
         try {
-          if (!sense.definition_pl && sense.definition) {
-            sense.definition_pl = (await translateToPolish(sense.definition)) || '';
+          if (!sense.definition_pl) {
+            if (plData?.dikiSenses?.[sIdx]?.meanings?.length > 0) {
+              sense.definition_pl = plData.dikiSenses[sIdx].meanings.slice(0, 3).join(', ');
+            } else if (sense.definition) {
+              sense.definition_pl = (await translateToPolish(sense.definition)) || '';
+            }
           }
         } catch (e) {}
       })
@@ -753,7 +944,7 @@ export async function enrichWordByIdOrText(identifier) {
       register: null,
       pattern: null,
       definition: primaryDefEn,
-      definition_pl: hasCuratedPl ? row.definition_pl : plData.definition_pl,
+      definition_pl: plData.definition_pl || (hasCuratedPl ? row.definition_pl : ''),
       examples: [primaryExampleEn]
     });
   }
@@ -774,7 +965,9 @@ export async function enrichWordByIdOrText(identifier) {
   const existingAnts = safeJsonParse(row.antonyms, []);
   const mergedAntonyms = [...new Set([...existingAnts, ...(lexicalData.antonyms || [])])].slice(0, 6);
 
-  let finalDefinitionPl = hasCuratedPl ? row.definition_pl : plData.definition_pl || row.definition_pl || '';
+  let finalDefinitionPl = (plData?.definition_pl && plData.definition_pl.toLowerCase() !== word.toLowerCase())
+    ? plData.definition_pl
+    : (hasCuratedPl ? row.definition_pl : masterDict[word.toLowerCase()] || '');
   if (!finalDefinitionPl || finalDefinitionPl.toLowerCase() === word.toLowerCase() || finalDefinitionPl.startsWith('Ładowanie')) {
     finalDefinitionPl = masterDict[word.toLowerCase()] || '';
   }
@@ -834,13 +1027,13 @@ export async function enrichWordByIdOrText(identifier) {
 /**
  * 7. Lookup & Auto-Create ANY English word on demand if searched by user
  */
-export async function lookupOrEnrichWord(rawWord) {
+export async function lookupOrEnrichWord(rawWord, forceRefresh = false) {
   const clean = String(rawWord || '').trim().toLowerCase();
   if (!clean) return null;
 
   const existing = db.prepare('SELECT * FROM words WHERE LOWER(word) = ?').get(clean);
   if (existing) {
-    return await enrichWordByIdOrText(existing.id);
+    return await enrichWordByIdOrText(existing.id, forceRefresh);
   }
 
   // Not in DB yet: insert stub and immediately enrich from Oxford API
@@ -860,7 +1053,7 @@ export async function lookupOrEnrichWord(rawWord) {
     VALUES (?, 'new', 0, 0, 2.5, 0, 0, 0)
   `).run(newId);
 
-  return await enrichWordByIdOrText(newId);
+  return await enrichWordByIdOrText(newId, forceRefresh);
 }
 
 const customDropWordsPath = path.join(dataDir, 'custom_words.txt');

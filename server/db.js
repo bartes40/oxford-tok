@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const cwdDbPath = path.join(process.cwd(), 'data', 'oxford.db');
 const relDbPath = path.join(__dirname, '..', 'data', 'oxford.db');
 const originalDbPath = fs.existsSync(cwdDbPath) ? cwdDbPath : relDbPath;
+const originalDataDir = path.dirname(originalDbPath);
 
 let effectiveDbPath = originalDbPath;
 
@@ -37,12 +38,14 @@ if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
 
 const db = new DatabaseSync(effectiveDbPath);
 
-// Enable WAL mode for high performance concurrency (with MEMORY fallback)
+// Enable WAL mode & busy timeout for high performance concurrency
 try {
   db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA busy_timeout = 5000;');
 } catch (e) {
   try {
     db.exec('PRAGMA journal_mode = MEMORY;');
+    db.exec('PRAGMA busy_timeout = 5000;');
   } catch (e2) {}
 }
 

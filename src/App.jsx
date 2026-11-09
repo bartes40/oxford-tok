@@ -72,13 +72,24 @@ export default function App() {
     fetchFeed(currentFilter);
   }, [currentFilter]);
 
-  // Toggle favorite / save word
-  const handleToggleFavorite = async (wordId) => {
+  // Toggle favorite / save word (supports optional force boolean)
+  const handleToggleFavorite = async (wordId, force) => {
     try {
+      // Optimistic instant feedback
+      setWords((prev) =>
+        prev.map((w) => {
+          if (w.id === wordId) {
+            const nextFav = typeof force === 'boolean' ? (force ? 1 : 0) : (w.is_favorite ? 0 : 1);
+            return { ...w, is_favorite: nextFav };
+          }
+          return w;
+        })
+      );
+
       const res = await fetch('/api/toggle-favorite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word_id: wordId })
+        body: JSON.stringify({ word_id: wordId, force })
       });
       const data = await res.json();
       if (data.success) {

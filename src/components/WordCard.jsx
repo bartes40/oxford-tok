@@ -19,15 +19,44 @@ export default function WordCard({
   onToggleAccent
 }) {
   const [flyingHearts, setFlyingHearts] = useState([]);
+  const [isFlipping, setIsFlipping] = useState(false);
   const cardRef = useRef(null);
   const clickTimerRef = useRef(null);
+  const flipTimerRef = useRef(null);
   const lastClickTimeRef = useRef(0);
+  const isRapidClickingRef = useRef(false);
+  const rapidResetTimerRef = useRef(null);
+  const pendingFirstTapPosRef = useRef(null);
 
-  // Clear pending flip timer on word change or unmount
+  // Track 3D flip lifecycle to freeze scroll layers and isolate textures during rotation
   useEffect(() => {
+    setIsFlipping(true);
+    if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
+    flipTimerRef.current = setTimeout(() => {
+      setIsFlipping(false);
+    }, 540);
+    return () => {
+      if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
+    };
+  }, [isRevealed]);
+
+  // Clear pending flip and rapid timers on word change or unmount
+  useEffect(() => {
+    isRapidClickingRef.current = false;
+    lastClickTimeRef.current = 0;
+    pendingFirstTapPosRef.current = null;
     return () => {
       if (clickTimerRef.current) {
         clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      if (flipTimerRef.current) {
+        clearTimeout(flipTimerRef.current);
+        flipTimerRef.current = null;
+      }
+      if (rapidResetTimerRef.current) {
+        clearTimeout(rapidResetTimerRef.current);
+        rapidResetTimerRef.current = null;
       }
     };
   }, [word.id]);
@@ -107,71 +136,154 @@ export default function WordCard({
     !word.definition_pl ||
     word.definition_pl.trim().toLowerCase() === (word.word || '').trim().toLowerCase() ||
     word.definition_pl.startsWith('Ładowanie');
-  const polishMeanings = (plMissing ? '' : word.definition_pl || '')
-    .split(/[,;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const splitDefinitions = (str = '') => {
+    const result = [];
+    let current = '';
+    let inParen = 0;
+    for (const ch of str) {
+      if (ch === '(') inParen++;
+      else if (ch === ')') inParen = Math.max(0, inParen - 1);
+      if ((ch === ',' || ch === ';') && inParen === 0) {
+        if (current.trim()) result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  };
+
+  const polishMeanings = plMissing ? [] : splitDefinitions(word.definition_pl);
 
   const primaryMeaningPl = plMissing ? 'Tłumaczenie w przygotowaniu…' : polishMeanings[0] || word.definition_pl;
   const secondaryMeaningsPl = polishMeanings.slice(1, 4);
 
+  // Tastefully scale large typography so words fit gracefully without clipping
+  const getHeadingSizeClass = (text = '') => {
+    const clean = (text || '').trim();
+    const len = clean.length;
+    if (len <= 6) {
+      return 'text-4xl xs:text-5xl sm:text-6xl md:text-7xl';
+    }
+    if (len <= 9) {
+      return 'text-3xl xs:text-4xl sm:text-5xl md:text-6xl';
+    }
+    if (len <= 13) {
+      return 'text-2xl xs:text-3xl sm:text-4xl md:text-5xl';
+    }
+    if (len <= 17) {
+      return 'text-xl xs:text-2xl sm:text-3xl md:text-4xl';
+    }
+    return 'text-lg xs:text-xl sm:text-2xl md:text-3xl';
+  };
+
+  // Helper to spawn floating heart at specific coordinates
+  const spawnFlyingHeart = (x, y) => {
+    const heartId = Date.now() + Math.random();
+    const heartRot = ((Math.random() - 0.5) * 44).toFixed(1) + 'deg';
+    const offsetX = (Math.random() - 0.5) * 22;
+    const offsetY = (Math.random() - 0.5) * 18;
+    setFlyingHearts((prev) => [
+      ...prev.slice(-30),
+      { id: heartId, x: Math.round(x + offsetX), y: Math.round(y + offsetY), rot: heartRot }
+    ]);
+
+    setTimeout(() => {
+      setFlyingHearts((prev) => prev.filter((h) => h.id !== heartId));
+    }, 900);
+  };
+
   const handleCardClick = (e) => {
-    // If clicked on an interactive button, audio, or modal trigger, ignore card flip
+    // If clicked on an interactive button, audio, or modal trigger, ignore
     if (e.target.closest('button') || e.target.closest('a') || e.target.closest('[data-no-flip]')) {
       return;
     }
 
+    // Extract exact tap coordinates relative to the card for TikTok floating heart
+    let x = 180;
+    let y = 260;
+    if (cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect();
+      const clientX = e.clientX ?? (e.nativeEvent && e.nativeEvent.clientX);
+      const clientY = e.clientY ?? (e.nativeEvent && e.nativeEvent.clientY);
+      if (clientX !== undefined && clientY !== undefined && clientX >= rect.left && clientX <= rect.right) {
+        x = clientX - rect.left;
+        y = clientY - rect.top;
+      } else {
+        x = rect.width / 2;
+        y = rect.height / 2;
+      }
+    }
+
     const now = Date.now();
     const diff = now - lastClickTimeRef.current;
+    const RAPID_CLICK_THRESHOLD = 320; // ms threshold between clicks
+    const RAPID_RESET_DELAY = 380;     // ms before ending rapid streak
 
-    // Fast double tap detected (< 280ms) -> LIKE action, cancel flip!
-    if (diff < 280 && diff > 0) {
+    // Check if this tap is part of a rapid clicking sequence (double-tap, multi-tap, infinite spam)
+    const isRapid = isRapidClickingRef.current || (diff > 0 && diff < RAPID_CLICK_THRESHOLD);
+
+    if (isRapid) {
+      // 1. Instantly cancel any scheduled card flip! Fast clicks NEVER flip the card!
       if (clickTimerRef.current) {
         clearTimeout(clickTimerRef.current);
         clickTimerRef.current = null;
       }
-      lastClickTimeRef.current = 0;
 
-      // Extract precise tap coordinate relative to the card for TikTok floating heart
-      let x = 180;
-      let y = 260;
-      if (cardRef.current) {
-        const rect = cardRef.current.getBoundingClientRect();
-        const clientX = e.clientX ?? (e.nativeEvent && e.nativeEvent.clientX);
-        const clientY = e.clientY ?? (e.nativeEvent && e.nativeEvent.clientY);
-        if (clientX !== undefined && clientY !== undefined) {
-          x = clientX - rect.left;
-          y = clientY - rect.top;
-        } else {
-          x = rect.width / 2;
-          y = rect.height / 2;
-        }
+      // 2. Mark rapid mode active and refresh reset timer
+      isRapidClickingRef.current = true;
+      lastClickTimeRef.current = now;
+
+      if (rapidResetTimerRef.current) {
+        clearTimeout(rapidResetTimerRef.current);
+      }
+      rapidResetTimerRef.current = setTimeout(() => {
+        isRapidClickingRef.current = false;
+        lastClickTimeRef.current = 0;
+        pendingFirstTapPosRef.current = null;
+      }, RAPID_RESET_DELAY);
+
+      // 3. Spawn floating hearts:
+      // If this was tap 2, also reward tap 1's coordinate so no clicks are missed
+      if (pendingFirstTapPosRef.current) {
+        spawnFlyingHeart(pendingFirstTapPosRef.current.x, pendingFirstTapPosRef.current.y);
+        pendingFirstTapPosRef.current = null;
+      }
+      spawnFlyingHeart(x, y);
+
+      // 4. Play heart reward sound
+      playGood();
+
+      // 5. Ensure word is liked (giving heart can only ADD, never remove by clicking card!)
+      if (!word.is_favorite && onToggleFavorite) {
+        onToggleFavorite(word.id, true);
       }
 
-      const heartId = Date.now() + Math.random();
-      const heartRot = ((Math.random() - 0.5) * 36).toFixed(1) + 'deg';
-      setFlyingHearts((prev) => [...prev, { id: heartId, x, y, rot: heartRot }]);
-
-      setTimeout(() => {
-        setFlyingHearts((prev) => prev.filter((h) => h.id !== heartId));
-      }, 900);
-
-      playGood();
-      if (onToggleFavorite) onToggleFavorite(word.id);
       return;
     }
 
-    // First tap detected -> schedule flip after snappy 140ms debounce window
+    // Guard: ignore single clicks during mid-flip 3D transition
+    if (isFlipping) {
+      return;
+    }
+
+    // Tap 1 of a potential single-click flip or rapid-like sequence
     lastClickTimeRef.current = now;
+    pendingFirstTapPosRef.current = { x, y };
+
     if (clickTimerRef.current) {
       clearTimeout(clickTimerRef.current);
     }
+
+    // Schedule card flip after debounce window (if no subsequent tap arrives, this was a single click to flip)
     clickTimerRef.current = setTimeout(() => {
-      playFlip();
-      if (onToggleReveal) onToggleReveal();
       clickTimerRef.current = null;
       lastClickTimeRef.current = 0;
-    }, 140);
+      pendingFirstTapPosRef.current = null;
+      playFlip();
+      if (onToggleReveal) onToggleReveal();
+    }, 280);
   };
 
   const displayedPhonetic =
@@ -208,11 +320,15 @@ export default function WordCard({
         {/* AWERS (FRONT): High-Fashion Obsidian Chrome ("ASCENSION")    */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="flip-card-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden">
-          <div className="w-full h-full flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
+        <div className={`flip-card-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden ${
+          isFlipping ? 'pointer-events-none select-none' : ''
+        }`}>
+          <div className={`w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 ${
+            isFlipping ? 'overflow-hidden' : 'overflow-y-auto'
+          } no-scrollbar`}>
           
           {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Quick Rotate */}
-          <div className="flex items-center justify-between">
+          <div className="shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-tech-mono text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded bg-white text-black tracking-wider uppercase">
                 {word.cefr_level || 'B2'}
@@ -229,7 +345,11 @@ export default function WordCard({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  playGood();
+                  if (word.is_favorite) {
+                    playTap();
+                  } else {
+                    playGood();
+                  }
                   if (onToggleFavorite) onToggleFavorite(word.id);
                 }}
                 className={`w-8 h-8 rounded-full border backdrop-blur-md flex items-center justify-center transition-all active:scale-90 ${
@@ -275,7 +395,7 @@ export default function WordCard({
           </div>
 
           {/* 2. MIDDLE HERO SECTION: Chrome Typography, Audio, Large Definition & Context */}
-          <div className="my-auto py-3 sm:py-5 flex flex-col justify-center min-h-0">
+          <div className="flex-1 min-h-0 flex flex-col justify-center py-2 sm:py-4">
             
             {/* The English Headword in Liquid Chrome with Star Glints */}
             <div className="relative inline-block w-fit max-w-full">
@@ -284,21 +404,21 @@ export default function WordCard({
                   e.stopPropagation();
                   onSpeak(word);
                 }}
-                className="chrome-text font-sans font-black text-5xl xs:text-6xl sm:text-7xl tracking-tighter leading-[1.14] pb-1.5 break-words cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all"
+                className={`chrome-text font-sans font-black tracking-tighter leading-[1.14] pb-1.5 break-words cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all ${getHeadingSizeClass(word.word)}`}
               >
                 {word.word}
               </h1>
 
               {/* Iconic 4-Point Star Lens Flares on letters */}
-              <StarGlint className="absolute -top-3 -right-3 w-5 h-5 text-white/95 animate-star-glint" />
+              <StarGlint className="absolute -top-2.5 right-0 sm:-right-2 w-4 h-4 sm:w-5 sm:h-5 text-white/95 animate-star-glint pointer-events-none" />
               <StarGlint
-                className="absolute -bottom-2 -left-3 w-4 h-4 text-slate-200/90 animate-star-glint"
+                className="absolute -bottom-1.5 left-0 sm:-left-2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-200/90 animate-star-glint pointer-events-none"
                 style={{ animationDelay: '1.4s' }}
               />
             </div>
 
             {/* Phonetic Pronunciation Pill + UK/US Accent Switcher */}
-            <div className="mt-3.5 sm:mt-4 flex items-center gap-2">
+            <div className="mt-2.5 sm:mt-3.5 flex items-center gap-2">
               <button
                 type="button"
                 onClick={(e) => {
@@ -328,21 +448,21 @@ export default function WordCard({
             </div>
 
             {/* Clear, Prominent English Oxford Definition */}
-            <p className="mt-5 sm:mt-7 text-lg xs:text-xl sm:text-2xl text-neutral-100 leading-snug sm:leading-relaxed font-semibold tracking-tight">
+            <p className="mt-3.5 sm:mt-5 text-base xs:text-lg sm:text-xl text-neutral-100 leading-snug sm:leading-relaxed font-semibold tracking-tight">
               {word.definition_en}
             </p>
 
             {/* Authentic Context Sentence with High-Fashion Technical Header */}
             {word.example_en && (
-              <div className="mt-5 sm:mt-7 p-4 sm:p-5 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner">
-                <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest mb-2.5">
+              <div className="mt-3.5 sm:mt-5 p-3.5 sm:p-5 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner">
+                <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest mb-2">
                   <span className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
                     EXAMPLE // CONTEXT
                   </span>
                   <span>OXFORD 3000™</span>
                 </div>
-                <p className="font-sans text-sm xs:text-base sm:text-lg text-neutral-200 font-normal italic leading-relaxed">
+                <p className="font-sans text-xs xs:text-sm sm:text-base text-neutral-200 font-normal italic leading-relaxed">
                   "{renderHighlightedExampleEn(word.example_en, word.word)}"
                 </p>
               </div>
@@ -350,7 +470,7 @@ export default function WordCard({
           </div>
 
           {/* 3. BOTTOM TECHNICAL FOOTER: Collocations & Technical Metadata */}
-          <div className="pt-3 sm:pt-4 border-t border-white/[0.12] flex items-center justify-between gap-2 overflow-x-auto no-scrollbar pb-1">
+          <div className="shrink-0 pt-3 sm:pt-4 border-t border-white/[0.12] flex items-center justify-between gap-2 overflow-x-auto no-scrollbar pb-1">
             {word.collocations && word.collocations.length > 0 ? (
               <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
                 {word.collocations.slice(0, 3).map((col, idx) => (
@@ -381,12 +501,15 @@ export default function WordCard({
         {/* REWERS (BACK): High-Fashion Noir Obsidian Chrome             */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="flip-card-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden">
-          <div className="w-full h-full flex flex-col justify-between px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
+        <div className={`flip-card-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white overflow-hidden ${
+          isFlipping ? 'pointer-events-none select-none' : ''
+        }`}>
+          <div className={`w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 ${
+            isFlipping ? 'overflow-hidden' : 'overflow-y-auto'
+          } no-scrollbar`}>
             
             {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Return */}
-            <div>
-            <div className="flex items-center justify-between">
+            <div className="shrink-0 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-tech-mono text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded bg-white text-black tracking-wider uppercase shadow-[0_0_12px_rgba(255,255,255,0.45)]">
                   {word.cefr_level || 'B2'}
@@ -402,7 +525,11 @@ export default function WordCard({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    playGood();
+                    if (word.is_favorite) {
+                      playTap();
+                    } else {
+                      playGood();
+                    }
                     if (onToggleFavorite) onToggleFavorite(word.id);
                   }}
                   className={`w-8 h-8 rounded-full border backdrop-blur-md flex items-center justify-center transition-all active:scale-90 ${
@@ -445,124 +572,117 @@ export default function WordCard({
               </div>
             </div>
 
-            {/* Clean Technical Divider Line */}
-            <div className="mt-3 sm:mt-4 border-b border-white/[0.12] flex items-center justify-between">
-              <span className="text-[10px] font-tech-mono text-neutral-500">REF: EX_01</span>
-              <span className="text-[10px] font-tech-mono text-neutral-500">OXFORD.EDU</span>
-            </div>
-          </div>
-
-          {/* 2. MIDDLE HERO SECTION: Massive Polish Meaning, Pills, Context & Collocations */}
-          <div className="my-auto py-3 sm:py-5 flex flex-col justify-center min-h-0">
-            {/* The Polish Meaning in Silver Liquid Chrome Typography */}
-            <div className="relative inline-block w-fit max-w-full">
-              <h2 className="chrome-text-silver font-sans font-black text-5xl xs:text-6xl sm:text-7xl tracking-tighter leading-[1.12] pb-2 break-words">
-                {primaryMeaningPl}
-              </h2>
-              <StarGlint className="absolute -top-3 -right-3 w-5 h-5 text-white/95 animate-star-glint" />
-              <StarGlint
-                className="absolute -bottom-2 -left-3 w-4 h-4 text-slate-200/90 animate-star-glint"
-                style={{ animationDelay: '1.4s' }}
-              />
-            </div>
-
-            {/* Secondary Meaning Pills in Frosted Obsidian Glass */}
-            {secondaryMeaningsPl.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-3.5 sm:mt-4">
-                {secondaryMeaningsPl.map((syn, idx) => (
-                  <span
-                    key={idx}
-                    className="px-3 py-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 font-tech-mono text-xs sm:text-sm border border-white/15 backdrop-blur-md shadow-xs"
-                  >
-                    {syn}
-                  </span>
-                ))}
+            {/* 2. MIDDLE HERO SECTION: Massive Polish Meaning, Pills, Context & Collocations */}
+            <div className="flex-1 min-h-0 flex flex-col justify-center py-2 sm:py-4">
+              {/* The Polish Meaning in Silver Liquid Chrome Typography */}
+              <div className="relative inline-block w-fit max-w-full">
+                <h2 className={`chrome-text-silver font-sans font-black tracking-tighter leading-[1.12] pb-1.5 break-words ${getHeadingSizeClass(primaryMeaningPl)}`}>
+                  {primaryMeaningPl}
+                </h2>
+                <StarGlint className="absolute -top-2.5 right-0 sm:-right-2 w-4 h-4 sm:w-5 sm:h-5 text-white/95 animate-star-glint pointer-events-none" />
+                <StarGlint
+                  className="absolute -bottom-1.5 left-0 sm:-left-2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-200/90 animate-star-glint pointer-events-none"
+                  style={{ animationDelay: '1.4s' }}
+                />
               </div>
-            )}
 
-            {/* Context Box: English Oxford Example + Polish Translation */}
-            {word.example_en ? (
-              <div className="mt-5 sm:mt-6 p-4 sm:p-5 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner space-y-2.5">
-                <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)]" />
-                    PRZYKŁAD W KONTEKŚCIE
-                  </span>
-                  <span>OXFORD 3000™</span>
-                </div>
-                <p className="font-sans text-base xs:text-lg sm:text-xl font-medium text-neutral-100 leading-snug sm:leading-relaxed">
-                  "{renderHighlightedExampleEn(word.example_en, word.word)}"
-                </p>
-                {word.example_pl && (
-                  <p className="font-sans text-sm xs:text-base sm:text-lg text-neutral-300 font-normal leading-relaxed pt-2 border-t border-white/[0.08]">
-                    {renderHighlightedExamplePl(word.example_pl, word.definition_pl)}
-                  </p>
-                )}
-              </div>
-            ) : null}
-
-            {/* Collocations block in Obsidian Glass */}
-            {word.collocations && word.collocations.length > 0 && (
-              <div className="mt-4 p-3.5 sm:p-4 rounded-xl bg-white/[0.025] border border-white/[0.1] backdrop-blur-xs">
-                <div className="text-[10px] font-tech-mono font-bold text-neutral-400 uppercase tracking-widest mb-2">
-                  Typowe połączenia (Collocations)
-                </div>
-                <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                  {word.collocations.slice(0, 3).map((col, idx) => (
+              {/* Secondary Meaning Pills in Frosted Obsidian Glass */}
+              {secondaryMeaningsPl.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2.5 sm:mt-3.5">
+                  {secondaryMeaningsPl.map((syn, idx) => (
                     <span
                       key={idx}
-                      className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 text-neutral-200 text-xs sm:text-sm font-tech-mono"
+                      className="px-2.5 py-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 font-tech-mono text-xs sm:text-sm border border-white/15 backdrop-blur-md shadow-xs"
                     >
-                      {col}
+                      {syn}
                     </span>
                   ))}
                 </div>
+              )}
+
+              {/* Context Box: English Oxford Example + Polish Translation */}
+              {word.example_en ? (
+                <div className="mt-3.5 sm:mt-4 p-3.5 sm:p-4 rounded-2xl bg-white/[0.035] border border-white/[0.12] backdrop-blur-xs shadow-inner space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-tech-mono text-neutral-400 uppercase tracking-widest">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)]" />
+                      PRZYKŁAD W KONTEKŚCIE
+                    </span>
+                    <span>OXFORD 3000™</span>
+                  </div>
+                  <p className="font-sans text-sm xs:text-base sm:text-lg font-medium text-neutral-100 leading-snug sm:leading-relaxed">
+                    "{renderHighlightedExampleEn(word.example_en, word.word)}"
+                  </p>
+                  {word.example_pl && (
+                    <p className="font-sans text-xs xs:text-sm sm:text-base text-neutral-300 font-normal leading-relaxed pt-1.5 border-t border-white/[0.08]">
+                      {renderHighlightedExamplePl(word.example_pl, word.definition_pl)}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Collocations block in Obsidian Glass */}
+              {word.collocations && word.collocations.length > 0 && (
+                <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-xl bg-white/[0.025] border border-white/[0.1] backdrop-blur-xs">
+                  <div className="text-[10px] font-tech-mono font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
+                    Typowe połączenia (Collocations)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                    {word.collocations.slice(0, 3).map((col, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 text-neutral-200 text-xs sm:text-sm font-tech-mono"
+                      >
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. BOTTOM FOOTER: Word Reference, Audio & Return Button */}
+            <div className="shrink-0 pt-3 sm:pt-4 border-t border-white/[0.12] flex items-center justify-between pb-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSpeak(word);
+                  }}
+                  className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/20 flex items-center justify-center text-white active:scale-95 transition-all"
+                  title="Odsłuchaj"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                </button>
+                <span className="font-sans font-bold text-sm text-white">
+                  {word.word}
+                </span>
+                <span className="text-xs font-tech-mono text-neutral-400">
+                  [{word.cefr_level || 'B2'}]
+                </span>
               </div>
-            )}
-          </div>
 
-          {/* 3. BOTTOM FOOTER: Word Reference, Audio & Return Button */}
-          <div className="pt-3 sm:pt-4 border-t border-white/[0.12] flex items-center justify-between pb-1">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSpeak(word);
-                }}
-                className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/20 flex items-center justify-center text-white active:scale-95 transition-all"
-                title="Odsłuchaj"
-              >
-                <Volume2 className="w-3.5 h-3.5" />
-              </button>
-              <span className="font-sans font-bold text-sm text-white">
-                {word.word}
-              </span>
-              <span className="text-xs font-tech-mono text-neutral-400">
-                [{word.cefr_level || 'B2'}]
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="hidden sm:inline-block font-tech-mono text-[10px] text-neutral-500 uppercase tracking-widest">
+                  DOTKNIJ ↻
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playFlip();
+                    if (onToggleReveal) onToggleReveal();
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-tech-mono text-white bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 px-3.5 py-1 rounded-full border border-white/20 transition-all cursor-pointer font-semibold shadow-xs"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-white" />
+                  <span>Powrót</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="hidden sm:inline-block font-tech-mono text-[10px] text-neutral-500 uppercase tracking-widest">
-                DOTKNIJ ↻
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  playFlip();
-                  if (onToggleReveal) onToggleReveal();
-                }}
-                className="inline-flex items-center gap-1.5 text-xs font-tech-mono text-white bg-white/[0.08] hover:bg-white/[0.16] active:scale-95 px-3.5 py-1 rounded-full border border-white/20 transition-all cursor-pointer font-semibold shadow-xs"
-              >
-                <RotateCw className="w-3.5 h-3.5 text-white" />
-                <span>Powrót</span>
-              </button>
-            </div>
           </div>
-
-        </div>
         </div>
       </div>
     </div>

@@ -357,15 +357,17 @@ router.post('/review', (req, res) => {
   }
 });
 
-// POST /api/toggle-favorite - Star/bookmark a word
+// POST /api/toggle-favorite - Star/bookmark a word (supports optional force boolean)
 router.post('/toggle-favorite', (req, res) => {
   try {
-    const { word_id } = req.body;
+    const { word_id, force } = req.body;
     if (!word_id) return res.status(400).json({ success: false, error: 'word_id required' });
 
     const getProg = db.prepare('SELECT is_favorite FROM user_progress WHERE word_id = ?');
     const row = getProg.get(word_id);
-    const newFavorite = row && row.is_favorite ? 0 : 1;
+    const newFavorite = typeof force === 'boolean'
+      ? (force ? 1 : 0)
+      : (row && row.is_favorite ? 0 : 1);
 
     const setFav = db.prepare(`
       INSERT INTO user_progress (word_id, is_favorite) VALUES (?, ?)

@@ -16,7 +16,11 @@ export default function RightActionRail({
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
     setIsPopping(true);
-    playGood();
+    if (isFavorite) {
+      playTap();
+    } else {
+      playGood();
+    }
     onToggleFavorite(word.id);
     setTimeout(() => setIsPopping(false), 500);
   };

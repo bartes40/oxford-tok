@@ -127,34 +127,52 @@ export default function TikTokFeed({
     }
   };
 
-  // Touch Gesture Handling (1:1 Native TikTok Physics)
+  // Touch Gesture Handling (1:1 Native TikTok Physics with 10px Touch-Slop Deadzone)
   const handleTouchStart = (e) => {
     if (isTransitioningRef.current) return;
     touchStartY.current = e.touches[0].clientY;
     touchStartTime.current = Date.now();
     dragDistance.current = 0;
-    setIsDragging(true);
+    // Do not set isDragging immediately; wait for movement past slop threshold
   };
 
   const handleTouchMove = (e) => {
-    if (!isDragging || isTransitioningRef.current) return;
+    if (isTransitioningRef.current) return;
     const currentY = e.touches[0].clientY;
     const diff = currentY - touchStartY.current;
-    dragDistance.current = Math.abs(diff);
+    const distance = Math.abs(diff);
+    dragDistance.current = distance;
 
-    // Apply rubber band resistance if at bounds
+    // Ignore micro-motion/jitter below 10px so taps never drag upcoming cards
+    if (!isDragging && distance < 10) {
+      return;
+    }
+
+    if (!isDragging) {
+      setIsDragging(true);
+    }
+
+    // Apply smooth rubber band resistance if at bounds
+    const activeDiff = diff > 0 ? diff - 10 : diff + 10;
     if ((currentIndex === 0 && diff > 0) || (currentIndex === words.length - 1 && diff < 0)) {
-      setDragY(diff * 0.22);
+      setDragY(activeDiff * 0.22);
     } else {
-      setDragY(diff);
+      setDragY(activeDiff);
     }
   };
 
   const handleTouchEnd = () => {
-    if (!isDragging || isTransitioningRef.current) return;
+    if (isTransitioningRef.current) return;
+
+    if (!isDragging) {
+      // Stationary tap or micro-motion below 10px - zero drag occurred
+      setDragY(0);
+      return;
+    }
+
     setIsDragging(false);
 
-    if (dragDistance.current > 8) {
+    if (dragDistance.current > 10) {
       suppressClick.current = true;
       setTimeout(() => {
         suppressClick.current = false;
@@ -201,34 +219,48 @@ export default function TikTokFeed({
 
   // Mouse Drag Support for Desktop testing
   const handleMouseDown = (e) => {
-    if (isTransitioningRef.current) return;
+    if (isTransitioningRef.current || e.button !== 0) return;
     touchStartY.current = e.clientY;
     touchStartTime.current = Date.now();
     dragDistance.current = 0;
-    setIsDragging(true);
+    let draggingStarted = false;
 
     const onMouseMove = (moveEvent) => {
       const diff = moveEvent.clientY - touchStartY.current;
-      dragDistance.current = Math.abs(diff);
+      const distance = Math.abs(diff);
+      dragDistance.current = distance;
 
+      if (!draggingStarted && distance < 10) {
+        return;
+      }
+
+      if (!draggingStarted) {
+        draggingStarted = true;
+        setIsDragging(true);
+      }
+
+      const activeDiff = diff > 0 ? diff - 10 : diff + 10;
       if ((currentIndex === 0 && diff > 0) || (currentIndex === words.length - 1 && diff < 0)) {
-        setDragY(diff * 0.22);
+        setDragY(activeDiff * 0.22);
       } else {
-        setDragY(diff);
+        setDragY(activeDiff);
       }
     };
 
     const onMouseUp = (upEvent) => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      setIsDragging(false);
 
-      if (dragDistance.current > 8) {
-        suppressClick.current = true;
-        setTimeout(() => {
-          suppressClick.current = false;
-        }, 120);
+      if (!draggingStarted) {
+        setDragY(0);
+        return;
       }
+
+      setIsDragging(false);
+      suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 120);
 
       const currentDiff = upEvent.clientY - touchStartY.current;
       const elapsed = Math.max(1, Date.now() - touchStartTime.current);
@@ -364,7 +396,9 @@ export default function TikTokFeed({
       }
       return {
         transform: 'translate3d(0, 100%, 0)',
-        opacity: 1,
+        opacity: 0,
+        visibility: 'hidden',
+        pointerEvents: 'none',
         transition: 'none'
       };
     }
@@ -398,7 +432,9 @@ export default function TikTokFeed({
       }
       return {
         transform: 'translate3d(0, -100%, 0)',
-        opacity: 1,
+        opacity: 0,
+        visibility: 'hidden',
+        pointerEvents: 'none',
         transition: 'none'
       };
     }
@@ -424,8 +460,11 @@ export default function TikTokFeed({
         {prevWord && (
           <div
             key={`prev-${prevWord.id}`}
-            className="absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none z-10"
+            className={`absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none ${
+              (isDragging && dragY > 0) || transitionState === 'prev' ? 'z-30' : 'z-10'
+            }`}
             style={getStyleForSlot('prev')}
+            aria-hidden={!isDragging && !transitionState}
           >
             <WordCard
               word={prevWord}
@@ -462,8 +501,11 @@ export default function TikTokFeed({
         {nextWord && (
           <div
             key={`next-${nextWord.id}`}
-            className="absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none z-30"
+            className={`absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none ${
+              (isDragging && dragY < 0) || transitionState === 'next' ? 'z-30' : 'z-10'
+            }`}
             style={getStyleForSlot('next')}
+            aria-hidden={!isDragging && !transitionState}
           >
             <WordCard
               word={nextWord}
