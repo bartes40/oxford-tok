@@ -57,6 +57,7 @@ function WordCardComponent({
   onToggleAccent
 }) {
   const [flyingHearts, setFlyingHearts] = useState([]);
+  const [shuffleDirection, setShuffleDirection] = useState(null); // null | 'to-back' | 'to-front'
   const cardRef = useRef(null);
   const clickTimerRef = useRef(null);
   const lastClickTimeRef = useRef(0);
@@ -65,15 +66,48 @@ function WordCardComponent({
   const rapidResetTimerRef = useRef(null);
   const pendingFirstTapPosRef = useRef(null);
   const heartTimersRef = useRef(new Set());
+  const prevWordIdRef = useRef(word.id);
+  const prevRevealedRef = useRef(isRevealed);
+  const animTimeoutRef = useRef(null);
 
-  // Snappy, instant reveal trigger
+  // Tactile, premium card shuffle reveal trigger
   const triggerFlip = () => {
     const now = Date.now();
-    if (now - lastFlipTimeRef.current < 160) return;
+    if (now - lastFlipTimeRef.current < 360) return;
     lastFlipTimeRef.current = now;
     playFlip();
     if (onToggleReveal) onToggleReveal();
   };
+
+  // Coordinated slow-to-fast shuffle animation when toggling reveal
+  useEffect(() => {
+    // If the word changed (e.g. user scrolled in the feed), reset instantly with NO animation
+    if (prevWordIdRef.current !== word.id) {
+      prevWordIdRef.current = word.id;
+      prevRevealedRef.current = isRevealed;
+      setShuffleDirection(null);
+      if (animTimeoutRef.current) {
+        clearTimeout(animTimeoutRef.current);
+        animTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    // When toggling reveal on the active card, trigger tactile deck shuffle
+    if (prevRevealedRef.current !== isRevealed) {
+      const dir = isRevealed ? 'to-back' : 'to-front';
+      prevRevealedRef.current = isRevealed;
+      setShuffleDirection(dir);
+
+      if (animTimeoutRef.current) {
+        clearTimeout(animTimeoutRef.current);
+      }
+      animTimeoutRef.current = setTimeout(() => {
+        setShuffleDirection(null);
+        animTimeoutRef.current = null;
+      }, 420);
+    }
+  }, [word.id, isRevealed]);
 
   // Clear pending flip and rapid timers on word change or unmount
   useEffect(() => {
@@ -88,6 +122,10 @@ function WordCardComponent({
       if (rapidResetTimerRef.current) {
         clearTimeout(rapidResetTimerRef.current);
         rapidResetTimerRef.current = null;
+      }
+      if (animTimeoutRef.current) {
+        clearTimeout(animTimeoutRef.current);
+        animTimeoutRef.current = null;
       }
       heartTimersRef.current.forEach((t) => clearTimeout(t));
       heartTimersRef.current.clear();
@@ -306,18 +344,20 @@ function WordCardComponent({
       onClick={handleCardClick}
       className="relative w-full sm:max-w-md mx-auto h-full sm:max-h-[84dvh] flashcard-stage select-none cursor-pointer"
     >
-      {/* Core Canvas (Instant state switch on mobile, 3D on desktop) */}
+      {/* Core Canvas (Tactile shuffle cards on mobile, 3D on desktop) */}
       <div
         className={`relative w-full h-full flashcard-inner ${
           isRevealed ? 'is-flipped' : ''
+        } ${shuffleDirection === 'to-back' ? 'shuffle-to-back' : ''} ${
+          shuffleDirection === 'to-front' ? 'shuffle-to-front' : ''
         }`}
       >
         {/* ============================================================ */}
         {/* AWERS (FRONT): High-Fashion Obsidian Chrome ("ASCENSION")    */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="flashcard-face flashcard-front rounded-none sm:rounded-[36px] obsidian-card-surface text-white">
-          <div className="w-full h-full rounded-none sm:rounded-[36px] overflow-hidden">
+        <div className="flashcard-face flashcard-front rounded-[28px] sm:rounded-[36px] obsidian-card-surface text-white">
+          <div className="w-full h-full rounded-[28px] sm:rounded-[36px] overflow-hidden">
             <div className="w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
           
           {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Quick Rotate */}
@@ -498,8 +538,8 @@ function WordCardComponent({
         {/* REWERS (BACK): High-Fashion Noir Obsidian Chrome             */}
         {/* Symmetrical padding, full width, integrated controls         */}
         {/* ============================================================ */}
-        <div className="flashcard-face flashcard-back rounded-none sm:rounded-[36px] obsidian-card-surface text-white">
-          <div className="w-full h-full rounded-none sm:rounded-[36px] overflow-hidden">
+        <div className="flashcard-face flashcard-back rounded-[28px] sm:rounded-[36px] obsidian-card-surface text-white">
+          <div className="w-full h-full rounded-[28px] sm:rounded-[36px] overflow-hidden">
             <div className="w-full h-full flex flex-col justify-between px-5 xs:px-6 sm:px-8 card-pt-safe card-pb-safe sm:py-8 overflow-y-auto no-scrollbar">
             
             {/* 1. TOP TECHNICAL BAR: Level, POS, Słownik, Like, Return */}

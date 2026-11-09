@@ -297,8 +297,9 @@
 }
 
 /* ========================================================================== */
+/* ========================================================================== */
 /* Flashcard Reveal Architecture:                                             */
-/* MOBILE (< 640px): BEZ ANIMACJI OBRACANIA (ZERO ROTACJI / INSTANT CUT)      */
+/* MOBILE (< 640px): TACTILE CARD SHUFFLE (SLOW-TO-FAST OVERLAPPING DECK)    */
 /* DESKTOP (>= 640px): Tactile 3D Perspective Hardware-Accelerated Flip       */
 /* ========================================================================== */
 
@@ -323,48 +324,198 @@
   overflow: hidden;
 }
 
+/* ========================================================================== */
+/* MOBILE CARD SHUFFLE ANIMATIONS (< 640px)                                   */
+/* Cards overlap like physical luxury cards, transition runs slower to faster */
+/* ========================================================================== */
+
+@keyframes mobileShuffleOutToBack {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+    z-index: 4;
+    box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.85);
+    animation-timing-function: cubic-bezier(0.55, 0.05, 0.7, 0.2); /* Wolniej: deliberate gentle start */
+  }
+  38% {
+    transform: translate3d(14px, -26px, 0) scale(0.96) rotate(1.8deg);
+    opacity: 1;
+    z-index: 4;
+    box-shadow: 0 24px 50px -8px rgba(0, 0, 0, 0.95);
+    animation-timing-function: cubic-bezier(0.2, 0.85, 0.25, 1); /* Do szybciej: accelerating sweep */
+  }
+  58% {
+    transform: translate3d(20px, -40px, 0) scale(0.94) rotate(2.4deg);
+    opacity: 0.95;
+    z-index: 1; /* Slips cleanly under the incoming card */
+  }
+  82% {
+    transform: translate3d(4px, -8px, 0) scale(0.93) rotate(0.6deg);
+    opacity: 0.35;
+    z-index: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.93) rotate(0deg);
+    opacity: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+}
+
+@keyframes mobileShuffleInToBack {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.93) rotate(0deg);
+    opacity: 0.8;
+    z-index: 1;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    animation-timing-function: cubic-bezier(0.55, 0.05, 0.7, 0.2); /* Wolniej: starts emerging beneath */
+  }
+  38% {
+    transform: translate3d(-12px, 22px, 0) scale(0.95) rotate(-1.5deg);
+    opacity: 0.95;
+    z-index: 1;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8);
+    animation-timing-function: cubic-bezier(0.2, 0.85, 0.25, 1); /* Do szybciej: accelerating sweep */
+  }
+  58% {
+    transform: translate3d(-16px, 30px, 0) scale(0.97) rotate(-1.8deg);
+    opacity: 1;
+    z-index: 5; /* Takes top layer over front card, overlapping it! */
+    box-shadow: 0 28px 60px -10px rgba(0, 0, 0, 0.98), 0 0 1px 1px rgba(255, 255, 255, 0.22);
+  }
+  82% {
+    transform: translate3d(-3px, 5px, 0) scale(0.99) rotate(-0.3deg);
+    opacity: 1;
+    z-index: 5;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+    z-index: 5;
+    box-shadow: 0 16px 44px -12px rgba(0, 0, 0, 0.85);
+    pointer-events: auto;
+  }
+}
+
+@keyframes mobileShuffleOutToFront {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+    z-index: 4;
+    box-shadow: 0 16px 44px -12px rgba(0, 0, 0, 0.85);
+    animation-timing-function: cubic-bezier(0.55, 0.05, 0.7, 0.2);
+  }
+  38% {
+    transform: translate3d(-14px, 26px, 0) scale(0.96) rotate(-1.8deg);
+    opacity: 1;
+    z-index: 4;
+    box-shadow: 0 24px 50px -8px rgba(0, 0, 0, 0.95);
+    animation-timing-function: cubic-bezier(0.2, 0.85, 0.25, 1);
+  }
+  58% {
+    transform: translate3d(-20px, 40px, 0) scale(0.94) rotate(-2.4deg);
+    opacity: 0.95;
+    z-index: 1;
+  }
+  82% {
+    transform: translate3d(-4px, 8px, 0) scale(0.93) rotate(-0.6deg);
+    opacity: 0.35;
+    z-index: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.93) rotate(0deg);
+    opacity: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+}
+
+@keyframes mobileShuffleInToFront {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.93) rotate(0deg);
+    opacity: 0.8;
+    z-index: 1;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    animation-timing-function: cubic-bezier(0.55, 0.05, 0.7, 0.2);
+  }
+  38% {
+    transform: translate3d(12px, -22px, 0) scale(0.95) rotate(1.5deg);
+    opacity: 0.95;
+    z-index: 1;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8);
+    animation-timing-function: cubic-bezier(0.2, 0.85, 0.25, 1);
+  }
+  58% {
+    transform: translate3d(16px, -30px, 0) scale(0.97) rotate(1.8deg);
+    opacity: 1;
+    z-index: 5;
+    box-shadow: 0 28px 60px -10px rgba(0, 0, 0, 0.98), 0 0 1px 1px rgba(255, 255, 255, 0.22);
+  }
+  82% {
+    transform: translate3d(3px, -5px, 0) scale(0.99) rotate(0.3deg);
+    opacity: 1;
+    z-index: 5;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+    z-index: 5;
+    box-shadow: 0 16px 44px -12px rgba(0, 0, 0, 0.85);
+    pointer-events: auto;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
-/* MOBILE (Phones, max-width: 639px): ZERO ANIMACJI OBRACANIA (ZERO ROTATION) */
+/* MOBILE (Phones, max-width: 639px): TACTILE OVERLAPPING DECK SHUFFLE        */
 /* -------------------------------------------------------------------------- */
 @media (max-width: 639px) {
-  .flashcard-stage,
-  .flashcard-inner,
-  .flashcard-face {
-    transform: none !important;
-    -webkit-transform: none !important;
+  .flashcard-stage {
     perspective: none !important;
     -webkit-perspective: none !important;
+  }
+
+  .flashcard-inner {
+    transform: none !important;
+    -webkit-transform: none !important;
+    transform-style: flat !important;
+    -webkit-transform-style: flat !important;
+  }
+
+  .flashcard-face {
     transform-style: flat !important;
     -webkit-transform-style: flat !important;
     backface-visibility: visible !important;
     -webkit-backface-visibility: visible !important;
-    animation: none !important;
+    will-change: transform, opacity, box-shadow;
   }
 
-  /* Awers: widoczny, gdy isRevealed = false */
+  /* Idle front-facing card (English) */
   .flashcard-front {
     opacity: 1;
     pointer-events: auto;
     visibility: visible;
     z-index: 2;
-    transition: opacity 0.08s ease-out;
+    transform: translate3d(0, 0, 0) scale(1);
+    transition: opacity 0.12s ease-out;
   }
 
-  /* Rewers: ukryty, gdy isRevealed = false */
+  /* Idle back card (Polish) tucked behind */
   .flashcard-back {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
     z-index: 1;
-    transition: opacity 0.08s ease-out;
+    transform: translate3d(0, 0, 0) scale(0.93);
+    transition: opacity 0.12s ease-out;
   }
 
-  /* Gdy odslonieta: natychmiastowe pokazanie rewersu, BEZ OBRACANIA */
+  /* Idle revealed state (Polish active) */
   .flashcard-inner.is-flipped .flashcard-front {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
     z-index: 1;
+    transform: translate3d(0, 0, 0) scale(0.93);
   }
 
   .flashcard-inner.is-flipped .flashcard-back {
@@ -372,6 +523,29 @@
     pointer-events: auto;
     visibility: visible;
     z-index: 2;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  /* Active shuffle animation: Front -> Back */
+  .flashcard-inner.shuffle-to-back .flashcard-front {
+    visibility: visible !important;
+    animation: mobileShuffleOutToBack 0.38s forwards !important;
+  }
+
+  .flashcard-inner.shuffle-to-back .flashcard-back {
+    visibility: visible !important;
+    animation: mobileShuffleInToBack 0.38s forwards !important;
+  }
+
+  /* Active shuffle animation: Back -> Front */
+  .flashcard-inner.shuffle-to-front .flashcard-front {
+    visibility: visible !important;
+    animation: mobileShuffleInToFront 0.38s forwards !important;
+  }
+
+  .flashcard-inner.shuffle-to-front .flashcard-back {
+    visibility: visible !important;
+    animation: mobileShuffleOutToFront 0.38s forwards !important;
   }
 }
 
