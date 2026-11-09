@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import WordCard from './WordCard';
 import { playSwoosh, playFlip } from '../utils/sound';
+import { getAuthHeaders } from '../utils/auth';
 
 function TikTokFeedComponent({
   words,
@@ -92,7 +93,9 @@ function TikTokFeedComponent({
         w.definition_pl.startsWith('Ładowanie');
       if (!w.senses || w.senses.length === 0 || isPlBad) {
         enrichedRequestedRef.current.add(key);
-        fetch(`/api/oxford/enrich/${encodeURIComponent(w.id || w.word)}`)
+        fetch(`/api/oxford/enrich/${encodeURIComponent(w.id || w.word)}`, {
+          headers: getAuthHeaders()
+        })
           .then((r) => r.json())
           .then((data) => {
             if (data.success && data.word && onWordUpdated) {
