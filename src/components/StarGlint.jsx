@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function StarGlint({ className = 'w-4 h-4 text-white', style = {} }) {
+function StarGlintComponent({ className = 'w-4 h-4 text-white', style = {} }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -12,3 +12,6 @@ export default function StarGlint({ className = 'w-4 h-4 text-white', style = {}
     </svg>
   );
 }
+
+const StarGlint = React.memo(StarGlintComponent);
+export default StarGlint;
