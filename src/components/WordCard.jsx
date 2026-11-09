@@ -73,7 +73,7 @@ function WordCardComponent({
   // Tactile, premium card shuffle reveal trigger
   const triggerFlip = () => {
     const now = Date.now();
-    if (now - lastFlipTimeRef.current < 360) return;
+    if (now - lastFlipTimeRef.current < 460) return;
     lastFlipTimeRef.current = now;
     playFlip();
     if (onToggleReveal) onToggleReveal();
@@ -105,7 +105,7 @@ function WordCardComponent({
       animTimeoutRef.current = setTimeout(() => {
         setShuffleDirection(null);
         animTimeoutRef.current = null;
-      }, 420);
+      }, 520);
     }
   }, [word.id, isRevealed]);
 
